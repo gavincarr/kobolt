@@ -25,7 +25,7 @@ type Options struct {
 	Timeout    int    `short:"t" long:"timeout" default:"90" description:"Per-URL timeout in seconds"`
 	CC         string `short:"C" long:"cc" env:"KOBOLT_CC" description:"Comma-separated ISO 3166-1 alpha-2 country codes (e.g. my,au,us). If unset, the region embedded in each input URL is used."`
 	Headful    bool   `long:"headful" description:"Run browser in headful (visible) mode for debugging"`
-	Verbose    bool   `short:"v" long:"verbose" description:"Enable debug logging"`
+	Verbose    []bool `short:"v" long:"verbose" description:"Enable debug logging; repeat (-vv) to also dump the raw gizmo config per URL"`
 
 	Args struct {
 		URLFile string `positional-arg-name:"url-file" description:"File containing one Kobo book URL per line"`
@@ -68,7 +68,7 @@ func main() {
 	}
 
 	level := slog.LevelInfo
-	if opts.Verbose {
+	if len(opts.Verbose) >= 1 {
 		level = slog.LevelDebug
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
@@ -191,7 +191,7 @@ func scrape(opts Options, books []*Book, jobs []job) error {
 		go func() {
 			defer wg.Done()
 			for j := range jobCh {
-				rp, isbn, title, author := scrapeOne(browserCtx, j.url, time.Duration(opts.Timeout)*time.Second)
+				rp, isbn, title, author := scrapeOne(browserCtx, j.url, time.Duration(opts.Timeout)*time.Second, len(opts.Verbose) >= 2)
 				logResult(j.url, j.cc, rp)
 				mu.Lock()
 				b := books[j.bookIdx]
@@ -372,7 +372,7 @@ func writeJSON(path string, books []*Book) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-func scrapeOne(browserCtx context.Context, url string, timeout time.Duration) (rp *RegionPrice, isbn, title, author string) {
+func scrapeOne(browserCtx context.Context, url string, timeout time.Duration, dumpRaw bool) (rp *RegionPrice, isbn, title, author string) {
 	rp = &RegionPrice{URL: url, ScrapedAt: time.Now()}
 
 	// Fresh tab per URL: reusing a tab across navigations hangs on the 2nd page.
@@ -395,7 +395,9 @@ func scrapeOne(browserCtx context.Context, url string, timeout time.Duration) (r
 		rp.Error = "data-kobo-gizmo-config attribute missing"
 		return rp, "", "", ""
 	}
-	slog.Debug("raw gizmo config", "url", url, "config", configJSON)
+	if dumpRaw {
+		slog.Debug("raw gizmo config", "url", url, "config", configJSON)
+	}
 
 	isbn, title, author, perr := parseGizmoConfig(configJSON, rp)
 	if perr != nil {
