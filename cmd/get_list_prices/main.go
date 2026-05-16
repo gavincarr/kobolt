@@ -16,8 +16,9 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
-	_ "github.com/joho/godotenv/autoload"
 	"github.com/jessevdk/go-flags"
+	_ "github.com/joho/godotenv/autoload"
+	"github.com/lmittmann/tint"
 )
 
 type Options struct {
@@ -71,7 +72,7 @@ func main() {
 	if len(opts.Verbose) >= 1 {
 		level = slog.LevelDebug
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: level})))
 
 	if err := run(opts); err != nil {
 		slog.Error("failed", "error", err)
