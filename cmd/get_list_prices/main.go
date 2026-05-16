@@ -8,14 +8,13 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/chromedp/chromedp"
+	"github.com/gavincarr/kobolt"
 	"github.com/jessevdk/go-flags"
 	_ "github.com/joho/godotenv/autoload"
 	"github.com/lmittmann/tint"
@@ -36,28 +35,6 @@ type Options struct {
 // Cloudflare blocks the classic --headless mode; the "new" headless and a
 // realistic UA pass the challenge automatically.
 const realisticUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-
-// Matches https://(www.)kobo.com/{cc}/... so we can swap or extract the region.
-var koboURLRegion = regexp.MustCompile(`^(https?://(?:www\.)?kobo\.com/)([a-z]{2})(/.*)$`)
-
-// Book is the per-URL output record. Common metadata lives at the top level;
-// per-region pricing lives under Regions, keyed by 2-letter country code.
-type Book struct {
-	URL     string                  `json:"url"`
-	ISBN    string                  `json:"isbn,omitempty"`
-	Title   string                  `json:"title,omitempty"`
-	Author  string                  `json:"author,omitempty"`
-	Regions map[string]*RegionPrice `json:"regions"`
-}
-
-type RegionPrice struct {
-	URL       string    `json:"url"`
-	Price     float64   `json:"price,omitempty"`
-	ListPrice float64   `json:"list_price,omitempty"`
-	Currency  string    `json:"currency,omitempty"`
-	ScrapedAt time.Time `json:"scraped_at"`
-	Error     string    `json:"error,omitempty"`
-}
 
 func main() {
 	var opts Options
@@ -94,10 +71,14 @@ func run(opts Options) error {
 		return fmt.Errorf("invalid --cc: %w", err)
 	}
 
-	outPath := outputPath(opts.Args.URLFile, time.Now())
-	existing, err := loadExisting(outPath)
+	outPath := kobolt.OutputPath(opts.Args.URLFile, time.Now())
+	prior, err := kobolt.LoadSnapshot(outPath)
 	if err != nil {
 		return fmt.Errorf("load existing output: %w", err)
+	}
+	existing := make(map[string]*kobolt.Book, len(prior))
+	for _, b := range prior {
+		existing[b.URL] = b
 	}
 	if len(existing) > 0 {
 		slog.Info("loaded existing output", "path", outPath, "records", len(existing))
@@ -117,7 +98,7 @@ func run(opts Options) error {
 		slog.Info("nothing to scrape; all (url, region) pairs already complete")
 	}
 
-	if err := writeJSON(outPath, books); err != nil {
+	if err := kobolt.WriteSnapshot(outPath, books); err != nil {
 		return fmt.Errorf("write output: %w", err)
 	}
 	slog.Info("wrote output", "path", outPath, "records", len(books))
@@ -133,14 +114,14 @@ type job struct {
 // plan returns the books slice in input order (existing entries reused, new
 // ones created) and the list of (book, region) pairs that still need
 // scraping (missing entirely or previously errored).
-func plan(urls []string, ccs []string, existing map[string]*Book) ([]*Book, []job, error) {
-	books := make([]*Book, len(urls))
+func plan(urls []string, ccs []string, existing map[string]*kobolt.Book) ([]*kobolt.Book, []job, error) {
+	books := make([]*kobolt.Book, len(urls))
 	var jobs []job
 
 	for i, u := range urls {
 		urlCCs := ccs
 		if len(urlCCs) == 0 {
-			cc, ok := extractRegion(u)
+			cc, ok := kobolt.ExtractRegion(u)
 			if !ok {
 				return nil, nil, fmt.Errorf("url %q has no /{cc}/ segment and --cc is not set", u)
 			}
@@ -149,9 +130,9 @@ func plan(urls []string, ccs []string, existing map[string]*Book) ([]*Book, []jo
 
 		b := existing[u]
 		if b == nil {
-			b = &Book{URL: u, Regions: map[string]*RegionPrice{}}
+			b = &kobolt.Book{URL: u, Regions: map[string]*kobolt.RegionPrice{}}
 		} else if b.Regions == nil {
-			b.Regions = map[string]*RegionPrice{}
+			b.Regions = map[string]*kobolt.RegionPrice{}
 		}
 		books[i] = b
 
@@ -159,13 +140,13 @@ func plan(urls []string, ccs []string, existing map[string]*Book) ([]*Book, []jo
 			if rp := b.Regions[cc]; rp != nil && rp.Error == "" {
 				continue
 			}
-			jobs = append(jobs, job{i, cc, substituteRegion(u, cc)})
+			jobs = append(jobs, job{i, cc, kobolt.SubstituteRegion(u, cc)})
 		}
 	}
 	return books, jobs, nil
 }
 
-func scrape(opts Options, books []*Book, jobs []job) error {
+func scrape(opts Options, books []*kobolt.Book, jobs []job) error {
 	allocOpts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
 		chromedp.UserAgent(realisticUA),
@@ -220,7 +201,7 @@ func scrape(opts Options, books []*Book, jobs []job) error {
 	return nil
 }
 
-func logResult(url, cc string, rp *RegionPrice) {
+func logResult(url, cc string, rp *kobolt.RegionPrice) {
 	if rp.Error != "" {
 		slog.Warn("scrape error", "cc", cc, "url", url, "error", rp.Error)
 		return
@@ -265,22 +246,6 @@ func isAlpha(s string) bool {
 	return true
 }
 
-func extractRegion(url string) (string, bool) {
-	m := koboURLRegion.FindStringSubmatch(url)
-	if m == nil {
-		return "", false
-	}
-	return m[2], true
-}
-
-func substituteRegion(url, cc string) string {
-	idx := koboURLRegion.FindStringSubmatchIndex(url)
-	if idx == nil {
-		return url
-	}
-	return url[:idx[4]] + cc + url[idx[5]:]
-}
-
 func readURLs(path string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -299,82 +264,8 @@ func readURLs(path string) ([]string, error) {
 	return urls, scanner.Err()
 }
 
-func outputPath(inputFile string, now time.Time) string {
-	dir := filepath.Dir(inputFile)
-	base := filepath.Base(inputFile)
-	name := strings.TrimSuffix(base, filepath.Ext(base))
-	return filepath.Join(dir, fmt.Sprintf("%s_%s.json", name, now.Format("20060102")))
-}
-
-// loadExisting reads a previous run's output. Records in the v1 flat schema
-// (top-level price/currency/scraped_at) are migrated into the v2 region-keyed
-// schema, inferring the region from the URL.
-func loadExisting(path string) (map[string]*Book, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return map[string]*Book{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	type combined struct {
-		URL       string                  `json:"url"`
-		ISBN      string                  `json:"isbn,omitempty"`
-		Title     string                  `json:"title,omitempty"`
-		Author    string                  `json:"author,omitempty"`
-		Regions   map[string]*RegionPrice `json:"regions,omitempty"`
-		Price     float64                 `json:"price,omitempty"`
-		ListPrice float64                 `json:"list_price,omitempty"`
-		Currency  string                  `json:"currency,omitempty"`
-		ScrapedAt time.Time               `json:"scraped_at,omitempty"`
-		Error     string                  `json:"error,omitempty"`
-	}
-
-	var raw []combined
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("decode: %w", err)
-	}
-
-	out := make(map[string]*Book, len(raw))
-	migrated := 0
-	for _, r := range raw {
-		b := &Book{URL: r.URL, ISBN: r.ISBN, Title: r.Title, Author: r.Author, Regions: r.Regions}
-		if b.Regions == nil {
-			b.Regions = map[string]*RegionPrice{}
-		}
-		hadFlat := r.Currency != "" || r.Price != 0 || r.ListPrice != 0 || r.Error != "" || !r.ScrapedAt.IsZero()
-		if len(b.Regions) == 0 && hadFlat {
-			if cc, ok := extractRegion(r.URL); ok {
-				b.Regions[cc] = &RegionPrice{
-					URL:       r.URL,
-					Price:     r.Price,
-					ListPrice: r.ListPrice,
-					Currency:  r.Currency,
-					ScrapedAt: r.ScrapedAt,
-					Error:     r.Error,
-				}
-				migrated++
-			}
-		}
-		out[b.URL] = b
-	}
-	if migrated > 0 {
-		slog.Info("migrated v1 records", "count", migrated)
-	}
-	return out, nil
-}
-
-func writeJSON(path string, books []*Book) error {
-	data, err := json.MarshalIndent(books, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o644)
-}
-
-func scrapeOne(browserCtx context.Context, url string, timeout time.Duration, dumpRaw bool) (rp *RegionPrice, isbn, title, author string) {
-	rp = &RegionPrice{URL: url, ScrapedAt: time.Now()}
+func scrapeOne(browserCtx context.Context, url string, timeout time.Duration, dumpRaw bool) (rp *kobolt.RegionPrice, isbn, title, author string) {
+	rp = &kobolt.RegionPrice{URL: url, ScrapedAt: time.Now()}
 
 	// Fresh tab per URL: reusing a tab across navigations hangs on the 2nd page.
 	tabCtx, cancelTab := chromedp.NewContext(browserCtx)
@@ -408,7 +299,7 @@ func scrapeOne(browserCtx context.Context, url string, timeout time.Duration, du
 	return rp, isbn, title, author
 }
 
-func parseGizmoConfig(raw string, rp *RegionPrice) (isbn, title, author string, err error) {
+func parseGizmoConfig(raw string, rp *kobolt.RegionPrice) (isbn, title, author string, err error) {
 	// Outer config is JSON. "googleBook" and "googleProduct" are themselves
 	// JSON-encoded strings.
 	//   googleBook    -> schema.org Book, Offer price = current (sale) price.
