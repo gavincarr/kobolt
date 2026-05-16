@@ -8,11 +8,14 @@
 /.netrc
 /DevNotes*
 /TODO*
+/bin/*
 /c.out
 /go.work*
 /data/*
 /delta/applied/*
+/diff_list_prices
 /dist/*
+/get_list_prices
 /go.work*
 /node_modules/*
 /pkg/linux_amd64/*

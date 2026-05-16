@@ -15,7 +15,8 @@ import (
 )
 
 type Options struct {
-	NoColor bool `long:"no-color" description:"Disable coloured output even on a TTY"`
+	ForceColor bool `short:"C" long:"force-color" description:"Emit colour even when stdout is not a TTY (e.g. piping to less -R)"`
+	NoColor    bool `long:"no-color" description:"Disable coloured output even on a TTY"`
 
 	Args struct {
 		Old string `positional-arg-name:"old.json" description:"Earlier snapshot"`
@@ -88,7 +89,7 @@ func run(opts Options) error {
 		return diffs[i].cc < diffs[j].cc
 	})
 
-	useColor := !opts.NoColor && term.IsTerminal(int(os.Stdout.Fd()))
+	useColor := !opts.NoColor && (opts.ForceColor || term.IsTerminal(int(os.Stdout.Fd())))
 	render(os.Stdout, diffs, useColor)
 	return nil
 }

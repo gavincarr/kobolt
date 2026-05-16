@@ -18,10 +18,11 @@ import (
 )
 
 type Options struct {
-	Top       int     `short:"n" long:"top" default:"20" description:"Show at most N books with the largest cross-region spreads"`
-	MinSpread float64 `short:"m" long:"min-spread" default:"5" description:"Skip books whose max cross-region spread is below this percent"`
-	Base      string  `short:"b" long:"base" default:"AUD" description:"Base currency for normalization (ISO 4217)"`
-	NoColor   bool    `long:"no-color" description:"Disable coloured output even on a TTY"`
+	Top        int     `short:"n" long:"top" default:"20" description:"Show at most N books with the largest cross-region spreads"`
+	MinSpread  float64 `short:"m" long:"min-spread" default:"5" description:"Skip books whose max cross-region spread is below this percent"`
+	Base       string  `short:"b" long:"base" default:"AUD" description:"Base currency for normalization (ISO 4217)"`
+	ForceColor bool    `short:"C" long:"force-color" description:"Emit colour even when stdout is not a TTY (e.g. piping to less -R)"`
+	NoColor    bool    `long:"no-color" description:"Disable coloured output even on a TTY"`
 
 	Args struct {
 		Snapshot string `positional-arg-name:"snapshot.json" description:"Snapshot to analyze"`
@@ -90,7 +91,7 @@ func run(opts Options) error {
 		return nil
 	}
 
-	useColor := !opts.NoColor && term.IsTerminal(int(os.Stdout.Fd()))
+	useColor := !opts.NoColor && (opts.ForceColor || term.IsTerminal(int(os.Stdout.Fd())))
 	render(os.Stdout, arbs, base, useColor)
 	return nil
 }
