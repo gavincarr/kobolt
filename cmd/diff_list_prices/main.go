@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log/slog"
-	"math"
 	"os"
 	"sort"
 	"strconv"
@@ -80,9 +79,8 @@ func run(opts Options) error {
 	}
 
 	sort.SliceStable(diffs, func(i, j int) bool {
-		ai, aj := math.Abs(diffs[i].pct), math.Abs(diffs[j].pct)
-		if ai != aj {
-			return ai > aj
+		if diffs[i].pct != diffs[j].pct {
+			return diffs[i].pct < diffs[j].pct
 		}
 		if diffs[i].order != diffs[j].order {
 			return diffs[i].order < diffs[j].order
@@ -159,22 +157,25 @@ func render(w *os.File, diffs []diff, useColor bool) {
 	}
 
 	for i, row := range formatted {
-		line := fmt.Sprintf("%-*s  %-*s  %*s → %*s  %*s  %-*s  %s",
+		absCell := fmt.Sprintf("%*s", widths[4], row[4])
+		pctCell := fmt.Sprintf("%-*s", widths[5], row[5])
+		if useColor {
+			color := ansiGreen
+			if diffs[i].abs > 0 {
+				color = ansiRed
+			}
+			absCell = color + absCell + ansiReset
+			pctCell = color + pctCell + ansiReset
+		}
+		line := fmt.Sprintf("%-*s  %-*s  %*s → %*s  %s  %s  %s",
 			widths[0], row[0],
 			widths[1], row[1],
 			widths[2], row[2],
 			widths[3], row[3],
-			widths[4], row[4],
-			widths[5], row[5],
+			absCell,
+			pctCell,
 			row[6],
 		)
-		if useColor {
-			if diffs[i].abs > 0 {
-				line = ansiRed + line + ansiReset
-			} else {
-				line = ansiGreen + line + ansiReset
-			}
-		}
 		fmt.Fprintln(w, line)
 	}
 }
