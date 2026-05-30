@@ -1,7 +1,7 @@
 # Bookmarklet
 
 ```javascript
-javascript:(function(){var s='https://script.google.com/macros/s/AKfycbwcpRpgHThCOCc4pk6x2l6CljQ7HwPa2jfJp32vW1Y-ZBmYfSeeR4m5j6zSrUXk35RGEA/exec?url=%27+encodeURIComponent(location.origin+location.pathname)+%27&title=%27+encodeURIComponent(document.title);new%20Image().src=s;var%20d=document.createElement(%27div%27);d.textContent=%27%E2%9C%93%20Saved%20to%20Sheets%27;d.style.cssText=%27position:fixed;top:20px;right:20px;background:#0f9d58;color:white;padding:12px%2020px;border-radius:8px;font-size:16px;z-index:999999;box-shadow:0%202px%208px%20rgba(0,0,0,0.3)';document.body.appendChild(d);setTimeout(function(){d.remove()},3000);})();
+javascript:(function(){var s='https://script.google.com/macros/s/XXXXXXXX/exec?url=%27+encodeURIComponent(location.origin+location.pathname)+%27&title=%27+encodeURIComponent(document.title);new%20Image().src=s;var%20d=document.createElement(%27div%27);d.textContent=%27%E2%9C%93%20Saved%20to%20Sheets%27;d.style.cssText=%27position:fixed;top:20px;right:20px;background:#0f9d58;color:white;padding:12px%2020px;border-radius:8px;font-size:16px;z-index:999999;box-shadow:0%202px%208px%20rgba(0,0,0,0.3)';document.body.appendChild(d);setTimeout(function(){d.remove()},3000);})();
 ```
 
 
