@@ -15,73 +15,84 @@ func TestParseURLList(t *testing.T) {
 		name      string
 		body      string
 		wantURLs  []string
-		wantDupes int
+		wantDupes map[string]int
 	}{
 		{
 			name:      "empty input",
 			body:      "",
 			wantURLs:  nil,
-			wantDupes: 0,
+			wantDupes: nil,
 		},
 		{
 			name:      "whitespace only",
 			body:      "  \n\t\n   \n",
 			wantURLs:  nil,
-			wantDupes: 0,
+			wantDupes: nil,
 		},
 		{
 			name:      "single url",
 			body:      "https://www.kobo.com/au/en/ebook/a",
 			wantURLs:  []string{"https://www.kobo.com/au/en/ebook/a"},
-			wantDupes: 0,
+			wantDupes: nil,
 		},
 		{
 			name:      "already sorted",
 			body:      "https://www.kobo.com/au/en/ebook/a\nhttps://www.kobo.com/au/en/ebook/b\nhttps://www.kobo.com/au/en/ebook/c",
 			wantURLs:  []string{"https://www.kobo.com/au/en/ebook/a", "https://www.kobo.com/au/en/ebook/b", "https://www.kobo.com/au/en/ebook/c"},
-			wantDupes: 0,
+			wantDupes: nil,
 		},
 		{
 			name:      "unsorted gets sorted",
 			body:      "https://www.kobo.com/au/en/ebook/c\nhttps://www.kobo.com/au/en/ebook/a\nhttps://www.kobo.com/au/en/ebook/b",
 			wantURLs:  []string{"https://www.kobo.com/au/en/ebook/a", "https://www.kobo.com/au/en/ebook/b", "https://www.kobo.com/au/en/ebook/c"},
-			wantDupes: 0,
+			wantDupes: nil,
 		},
 		{
 			name:      "blank lines dropped",
 			body:      "https://www.kobo.com/au/en/ebook/a\n\n\nhttps://www.kobo.com/au/en/ebook/b\n",
 			wantURLs:  []string{"https://www.kobo.com/au/en/ebook/a", "https://www.kobo.com/au/en/ebook/b"},
-			wantDupes: 0,
+			wantDupes: nil,
 		},
 		{
 			name:      "trailing newline",
 			body:      "https://www.kobo.com/au/en/ebook/a\nhttps://www.kobo.com/au/en/ebook/b\n",
 			wantURLs:  []string{"https://www.kobo.com/au/en/ebook/a", "https://www.kobo.com/au/en/ebook/b"},
-			wantDupes: 0,
+			wantDupes: nil,
 		},
 		{
 			name:      "leading and trailing whitespace trimmed",
 			body:      "  https://www.kobo.com/au/en/ebook/a  \n\thttps://www.kobo.com/au/en/ebook/b\t\n",
 			wantURLs:  []string{"https://www.kobo.com/au/en/ebook/a", "https://www.kobo.com/au/en/ebook/b"},
-			wantDupes: 0,
+			wantDupes: nil,
 		},
 		{
-			name:      "duplicates collapsed",
-			body:      "https://www.kobo.com/au/en/ebook/b\nhttps://www.kobo.com/au/en/ebook/a\nhttps://www.kobo.com/au/en/ebook/b\nhttps://www.kobo.com/au/en/ebook/a\nhttps://www.kobo.com/au/en/ebook/a",
-			wantURLs:  []string{"https://www.kobo.com/au/en/ebook/a", "https://www.kobo.com/au/en/ebook/b"},
-			wantDupes: 3,
+			name:     "duplicates collapsed",
+			body:     "https://www.kobo.com/au/en/ebook/b\nhttps://www.kobo.com/au/en/ebook/a\nhttps://www.kobo.com/au/en/ebook/b\nhttps://www.kobo.com/au/en/ebook/a\nhttps://www.kobo.com/au/en/ebook/a",
+			wantURLs: []string{"https://www.kobo.com/au/en/ebook/a", "https://www.kobo.com/au/en/ebook/b"},
+			wantDupes: map[string]int{
+				"https://www.kobo.com/au/en/ebook/a": 2,
+				"https://www.kobo.com/au/en/ebook/b": 1,
+			},
+		},
+		{
+			name:     "uppercase cc/lang lowercased and deduped",
+			body:     "https://www.kobo.com/AU/EN/ebook/a\nhttps://www.kobo.com/au/en/ebook/a\nhttps://www.kobo.com/AU/en/ebook/b",
+			wantURLs: []string{"https://www.kobo.com/au/en/ebook/a", "https://www.kobo.com/au/en/ebook/b"},
+			wantDupes: map[string]int{
+				"https://www.kobo.com/au/en/ebook/a": 1,
+			},
 		},
 		{
 			name:      "duplicate only after trim",
 			body:      "https://www.kobo.com/au/en/ebook/a\n  https://www.kobo.com/au/en/ebook/a  ",
 			wantURLs:  []string{"https://www.kobo.com/au/en/ebook/a"},
-			wantDupes: 1,
+			wantDupes: map[string]int{"https://www.kobo.com/au/en/ebook/a": 1},
 		},
 		{
 			name:      "crlf line endings",
 			body:      "https://www.kobo.com/au/en/ebook/b\r\nhttps://www.kobo.com/au/en/ebook/a\r\n",
 			wantURLs:  []string{"https://www.kobo.com/au/en/ebook/a", "https://www.kobo.com/au/en/ebook/b"},
-			wantDupes: 0,
+			wantDupes: nil,
 		},
 	}
 
@@ -91,8 +102,8 @@ func TestParseURLList(t *testing.T) {
 			if !reflect.DeepEqual(gotURLs, tt.wantURLs) {
 				t.Errorf("parseURLList() urls = %#v, want %#v", gotURLs, tt.wantURLs)
 			}
-			if gotDupes != tt.wantDupes {
-				t.Errorf("parseURLList() dupes = %d, want %d", gotDupes, tt.wantDupes)
+			if !reflect.DeepEqual(gotDupes, tt.wantDupes) {
+				t.Errorf("parseURLList() dupes = %#v, want %#v", gotDupes, tt.wantDupes)
 			}
 		})
 	}
@@ -193,8 +204,8 @@ func TestFetchURLListSuccess(t *testing.T) {
 	if !reflect.DeepEqual(urls, wantURLs) {
 		t.Errorf("parsed urls = %#v, want %#v", urls, wantURLs)
 	}
-	if dupes != 0 {
-		t.Errorf("dupes = %d, want 0", dupes)
+	if len(dupes) != 0 {
+		t.Errorf("dupes = %#v, want none", dupes)
 	}
 }
 

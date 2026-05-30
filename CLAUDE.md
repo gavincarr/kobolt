@@ -29,7 +29,9 @@ go build ./cmd/sync_wishlist
 ./sync_wishlist path/to/list.txt   # explicit output path
 ```
 
-The same Apps Script `/exec` deployment serves both directions: `?url=&title=` appends a row, `?action=list` returns column A as newline-separated plain text. The script runs as the user, so the sheet stays private — no API keys. The deployment URL is read from `KOBOLT_SHEET_URL` (kept in `.env.local`). `sync_wishlist` dedups + sorts the URLs and **atomically overwrites** the output file; a zero-URL response is refused rather than truncating the existing list. Run `sync_wishlist` before `get_list_prices` to scrape against the latest list.
+The same Apps Script `/exec` deployment serves both directions: `?url=&title=` appends a row, `?action=list` returns column A as newline-separated plain text. The script runs as the user, so the sheet stays private — no API keys. The deployment URL is read from `KOBOLT_SHEET_URL` (kept in `.env.local`). `sync_wishlist` lowercases (Kobo URLs are case-insensitive, but the sheet sometimes has uppercase `/CC/LANG/` codes that would break sorting/deduping), dedups + sorts the URLs, and **atomically overwrites** the output file; a zero-URL response is refused rather than truncating the existing list. Run `sync_wishlist` before `get_list_prices` to scrape against the latest list.
+
+`sync_wishlist` is **silent by default** (cron-friendly) — only a duplicate-URL warning and errors surface. `-v` adds the info-level sync summary; `-vv` additionally itemises each duplicated URL at debug so they're easy to find and clean up in the sheet.
 
 ## Architecture and non-obvious decisions
 

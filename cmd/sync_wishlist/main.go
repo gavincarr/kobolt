@@ -19,6 +19,8 @@ import (
 )
 
 type Options struct {
+	Verbose []bool `short:"v" long:"verbose" description:"Verbose output: -v logs the sync summary (info), -vv also itemises duplicate URLs (debug)"`
+
 	Args struct {
 		Output string `positional-arg-name:"output" description:"Output path for the wishlist (default data/wishlist.txt)"`
 	} `positional-args:"yes"`
@@ -41,7 +43,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: slog.LevelInfo})))
+	// Silent by default: only warnings (duplicate URLs) and errors surface.
+	// -v lifts to info (the sync summary), -vv to debug (itemised duplicates).
+	level := slog.LevelWarn
+	switch {
+	case len(opts.Verbose) >= 2:
+		level = slog.LevelDebug
+	case len(opts.Verbose) >= 1:
+		level = slog.LevelInfo
+	}
+	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: level})))
 
 	if err := run(opts); err != nil {
 		slog.Error("failed", "error", err)
@@ -71,15 +82,29 @@ func run(opts Options) error {
 		return fmt.Errorf("sheet returned no URLs; refusing to overwrite %s", outPath)
 	}
 
-	if dupes > 0 {
-		slog.Warn("collapsed duplicate URLs", "count", dupes)
+	if len(dupes) > 0 {
+		total := 0
+		for _, n := range dupes {
+			total += n
+		}
+		slog.Warn("collapsed duplicate URLs", "count", total)
+		// Itemise which URLs were duplicated (sorted) so they're easy to
+		// find and clean up in the sheet; visible at -vv.
+		dupURLs := make([]string, 0, len(dupes))
+		for u := range dupes {
+			dupURLs = append(dupURLs, u)
+		}
+		sort.Strings(dupURLs)
+		for _, u := range dupURLs {
+			slog.Debug("duplicate url", "url", u, "count", dupes[u]+1)
+		}
 	}
 
 	if err := atomicWrite(outPath, urls); err != nil {
 		return fmt.Errorf("write %s: %w", outPath, err)
 	}
 
-	fmt.Printf("synced %d urls -> %s\n", len(urls), outPath)
+	slog.Info("synced wishlist", "count", len(urls), "path", outPath)
 	return nil
 }
 
@@ -111,18 +136,26 @@ func fetchURLList(client *http.Client, base string) (string, error) {
 	return string(body), nil
 }
 
-// parseURLList splits the body on newlines, trims each line, drops blanks,
-// dedups, and sorts ascending. It returns the unique sorted URLs and the count
-// of duplicate lines that were collapsed.
-func parseURLList(body string) (urls []string, dupes int) {
+// parseURLList splits the body on newlines, trims each line, lowercases it,
+// drops blanks, dedups, and sorts ascending. It returns the unique sorted URLs
+// and, for each URL that appeared more than once, the number of collapsed
+// (extra) occurrences. dupes is nil when there were no duplicates.
+//
+// Kobo URLs are case-insensitive but the sheet sometimes carries uppercase
+// country/language codes (e.g. /AU/EN/), which would otherwise sort and dedup
+// as distinct from /au/en/; lowercasing normalises them.
+func parseURLList(body string) (urls []string, dupes map[string]int) {
 	seen := make(map[string]struct{})
 	for _, line := range strings.Split(body, "\n") {
-		line = strings.TrimSpace(line)
+		line = strings.ToLower(strings.TrimSpace(line))
 		if line == "" {
 			continue
 		}
 		if _, ok := seen[line]; ok {
-			dupes++
+			if dupes == nil {
+				dupes = make(map[string]int)
+			}
+			dupes[line]++
 			continue
 		}
 		seen[line] = struct{}{}
