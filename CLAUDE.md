@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-`kobolt` is a Go CLI that scrapes Kobo eBook list/sale prices for a file of URLs, optionally across multiple regional Kobo storefronts, and writes a dated JSON file next to the input. The single binary today lives at `cmd/get_list_prices`. The `data/` directory (input wishlists and dated outputs) is gitignored.
+`kobolt` scrapes Kobo eBook list/sale prices for a file of URLs, optionally across multiple regional Kobo storefronts, and writes a dated JSON file next to the input. Commands live under `cmd/`: `get_list_prices` (the scraper), `diff_list_prices` and `arb_list_prices` (analyse snapshots), and `sync_wishlist` (pulls the URL list down from a Google Sheet — see below). The `data/` directory (input wishlists and dated outputs) is gitignored.
 
 ## Build and run
 
@@ -18,6 +18,18 @@ KOBOLT_CC=my,au ./get_list_prices data/wishlist.txt
 ```
 
 Requires Chrome/Chromium on `$PATH` — chromedp drives it via CDP.
+
+## Wishlist maintenance (Google Sheet loop)
+
+The wishlist is maintained in a Google Spreadsheet, editable from anywhere. A bookmarklet (`Bookmarklet.md`) hits a deployed Apps Script web app to append the current page's URL to column A of the sheet. `sync_wishlist` closes the loop in the other direction:
+
+```
+go build ./cmd/sync_wishlist
+./sync_wishlist                    # GET $KOBOLT_SHEET_URL?action=list -> data/wishlist.txt
+./sync_wishlist path/to/list.txt   # explicit output path
+```
+
+The same Apps Script `/exec` deployment serves both directions: `?url=&title=` appends a row, `?action=list` returns column A as newline-separated plain text. The script runs as the user, so the sheet stays private — no API keys. The deployment URL is read from `KOBOLT_SHEET_URL` (kept in `.env.local`). `sync_wishlist` dedups + sorts the URLs and **atomically overwrites** the output file; a zero-URL response is refused rather than truncating the existing list. Run `sync_wishlist` before `get_list_prices` to scrape against the latest list.
 
 ## Architecture and non-obvious decisions
 
@@ -55,5 +67,5 @@ Books are matched across runs by exact URL string. Region substitution uses the 
 
 ## Stack notes specific to this repo
 
-- `joho/godotenv/autoload` auto-loads `.env` / `.env.local`, so `KOBOLT_CC` can live there without relying on direnv.
+- `joho/godotenv/autoload` auto-loads `.env` / `.env.local`, so `KOBOLT_CC` and `KOBOLT_SHEET_URL` can live there without relying on direnv.
 - The `data/` directory and dated JSON outputs are gitignored — don't commit scraped data.
