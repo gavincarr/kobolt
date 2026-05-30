@@ -15,8 +15,8 @@ import (
 
 	"github.com/chromedp/chromedp"
 	"github.com/gavincarr/kobolt"
+	"github.com/gavincarr/kobolt/internal/env"
 	"github.com/jessevdk/go-flags"
-	_ "github.com/joho/godotenv/autoload"
 	"github.com/lmittmann/tint"
 )
 
@@ -37,6 +37,8 @@ type Options struct {
 const realisticUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 func main() {
+	env.Load()
+
 	var opts Options
 	if _, err := flags.NewParser(&opts, flags.Default).Parse(); err != nil {
 		if flagsErr, ok := err.(*flags.Error); ok && flagsErr.Type == flags.ErrHelp {

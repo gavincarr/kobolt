@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gavincarr/kobolt/internal/env"
 	"github.com/jessevdk/go-flags"
-	_ "github.com/joho/godotenv/autoload"
 	"github.com/lmittmann/tint"
 )
 
@@ -31,6 +31,8 @@ const defaultOutput = "data/wishlist.txt"
 const fetchTimeout = 30 * time.Second
 
 func main() {
+	env.Load()
+
 	var opts Options
 	if _, err := flags.NewParser(&opts, flags.Default).Parse(); err != nil {
 		if flagsErr, ok := err.(*flags.Error); ok && flagsErr.Type == flags.ErrHelp {

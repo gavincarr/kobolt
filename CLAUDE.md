@@ -67,5 +67,6 @@ Books are matched across runs by exact URL string. Region substitution uses the 
 
 ## Stack notes specific to this repo
 
-- `joho/godotenv/autoload` auto-loads `.env` / `.env.local`, so `KOBOLT_CC` and `KOBOLT_SHEET_URL` can live there without relying on direnv.
+- **Env loading (`internal/env`).** Every command calls `env.Load()` first thing in `main()`. It loads `.env.local` then `.env`, resolved from the **module root** (derived from the executable via `internal/moduleroot`, or the `MODULE_ROOT` override) rather than the cwd. Precedence is real-env > `.env.local` > `.env` (godotenv never overwrites an already-set var). This deliberately replaces the bare `joho/godotenv/autoload` import, which reads only `.env` and only from the process cwd — fine interactively (direnv via `.envrc` also loads `.env.local`) but broken under cron, where direnv doesn't run and cwd is `$HOME`. So `KOBOLT_CC` / `KOBOLT_SHEET_URL` in `.env.local` now reach the binary without direnv.
+- **Running from cron.** `env.Load()` finds `.env.local` if *any* of these holds: the binary lives in `<root>/bin/` (so build with `go build -o bin/<name> ./cmd/<name>`), or `MODULE_ROOT` is exported, or the job `cd`s into the repo. `cd`-ing in is needed anyway because `get_list_prices`/`sync_wishlist` take relative paths like `data/wishlist.txt`. Typical line: `cd /path/to/kobolt && ./bin/sync_wishlist && ./bin/get_list_prices data/wishlist.txt`.
 - The `data/` directory and dated JSON outputs are gitignored — don't commit scraped data.

@@ -8,8 +8,8 @@ import (
 	"strconv"
 
 	"github.com/gavincarr/kobolt"
+	"github.com/gavincarr/kobolt/internal/env"
 	"github.com/jessevdk/go-flags"
-	_ "github.com/joho/godotenv/autoload"
 	"github.com/lmittmann/tint"
 	"golang.org/x/term"
 )
@@ -25,14 +25,14 @@ type Options struct {
 }
 
 type diff struct {
-	order            int
-	cc               string
-	currency         string
-	oldPrice         float64
-	newPrice         float64
-	abs              float64
-	pct              float64
-	title, author    string
+	order         int
+	cc            string
+	currency      string
+	oldPrice      float64
+	newPrice      float64
+	abs           float64
+	pct           float64
+	title, author string
 }
 
 const (
@@ -42,6 +42,8 @@ const (
 )
 
 func main() {
+	env.Load()
+
 	var opts Options
 	if _, err := flags.NewParser(&opts, flags.Default).Parse(); err != nil {
 		if flagsErr, ok := err.(*flags.Error); ok && flagsErr.Type == flags.ErrHelp {
