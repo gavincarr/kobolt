@@ -1,6 +1,8 @@
-package main
+package kobolt
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -80,9 +82,9 @@ func TestParseBooklog(t *testing.T) {
 		"11/15   Douglas Hubbard         How to Measure Anything                     B\n" +
 		"notamonth  Bad Line                Whatever                                F\n" // unparseable: reported
 
-	books, skipped := parseBooklog(content)
+	books, skipped := ParseBooklog(content)
 
-	wantBooks := []Book{
+	wantBooks := []BooklogEntry{
 		{Month: "2026-05", Author: "Olaf Stapledon", Title: "The Last and First Men", Genre: "Fiction", ID: "9781857988062", IDType: "isbn"},
 		{Month: "2015-11", Author: "Douglas Hubbard", Title: "How to Measure Anything", Genre: "Business"},
 	}
@@ -99,7 +101,7 @@ func TestParseBooklog(t *testing.T) {
 }
 
 func TestParseBooklogEmpty(t *testing.T) {
-	books, skipped := parseBooklog("")
+	books, skipped := ParseBooklog("")
 	if books != nil {
 		t.Errorf("books = %#v, want nil", books)
 	}
@@ -112,91 +114,91 @@ func TestParseLine(t *testing.T) {
 	tests := []struct {
 		name   string
 		line   string
-		want   Book
+		want   BooklogEntry
 		wantOk bool
 	}{
 		{
 			name:   "isbn13",
 			line:   "05/26   Olaf Stapledon          The Last and First Men                      F   9781857988062",
-			want:   Book{Month: "2026-05", Author: "Olaf Stapledon", Title: "The Last and First Men", Genre: "Fiction", ID: "9781857988062", IDType: "isbn"},
+			want:   BooklogEntry{Month: "2026-05", Author: "Olaf Stapledon", Title: "The Last and First Men", Genre: "Fiction", ID: "9781857988062", IDType: "isbn"},
 			wantOk: true,
 		},
 		{
 			name:   "asin",
 			line:   "12/25   Balaji Srinivasan       The Network State                           N   B09VPKZR3G",
-			want:   Book{Month: "2025-12", Author: "Balaji Srinivasan", Title: "The Network State", Genre: "Non-fiction", ID: "B09VPKZR3G", IDType: "asin"},
+			want:   BooklogEntry{Month: "2025-12", Author: "Balaji Srinivasan", Title: "The Network State", Genre: "Non-fiction", ID: "B09VPKZR3G", IDType: "asin"},
 			wantOk: true,
 		},
 		{
 			name:   "isbn10",
 			line:   "08/16   Neil Jenman             Real Estate Mistakes                        N   0958651728",
-			want:   Book{Month: "2016-08", Author: "Neil Jenman", Title: "Real Estate Mistakes", Genre: "Non-fiction", ID: "0958651728", IDType: "isbn"},
+			want:   BooklogEntry{Month: "2016-08", Author: "Neil Jenman", Title: "Real Estate Mistakes", Genre: "Non-fiction", ID: "0958651728", IDType: "isbn"},
 			wantOk: true,
 		},
 		{
 			name:   "no_id",
 			line:   "11/15   Douglas Hubbard         How to Measure Anything                     B",
-			want:   Book{Month: "2015-11", Author: "Douglas Hubbard", Title: "How to Measure Anything", Genre: "Business"},
+			want:   BooklogEntry{Month: "2015-11", Author: "Douglas Hubbard", Title: "How to Measure Anything", Genre: "Business"},
 			wantOk: true,
 		},
 		{
 			name:   "star_dropped",
 			line:   "09/97   Andrew Louth            Origins/Christian Mystical Tradition    C*",
-			want:   Book{Month: "1997-09", Author: "Andrew Louth", Title: "Origins/Christian Mystical Tradition", Genre: "Christian"},
+			want:   BooklogEntry{Month: "1997-09", Author: "Andrew Louth", Title: "Origins/Christian Mystical Tradition", Genre: "Christian"},
 			wantOk: true,
 		},
 		{
 			name:   "long_author_overflow",
 			line:   "01/22  Seth Stephens-Davidowitz Everybody Lies                              N   9781408894736",
-			want:   Book{Month: "2022-01", Author: "Seth Stephens-Davidowitz", Title: "Everybody Lies", Genre: "Non-fiction", ID: "9781408894736", IDType: "isbn"},
+			want:   BooklogEntry{Month: "2022-01", Author: "Seth Stephens-Davidowitz", Title: "Everybody Lies", Genre: "Non-fiction", ID: "9781408894736", IDType: "isbn"},
 			wantOk: true,
 		},
 		{
 			name:   "multibyte_author",
 			line:   "07/12   China Miéville          The City and the City                       F",
-			want:   Book{Month: "2012-07", Author: "China Miéville", Title: "The City and the City", Genre: "Fiction"},
+			want:   BooklogEntry{Month: "2012-07", Author: "China Miéville", Title: "The City and the City", Genre: "Fiction"},
 			wantOk: true,
 		},
 		{
 			name:   "long_title_overflow",
 			line:   "06/97   Thomas S. Kuhn          The Structure of Scientific Revolutions N",
-			want:   Book{Month: "1997-06", Author: "Thomas S. Kuhn", Title: "The Structure of Scientific Revolutions", Genre: "Non-fiction"},
+			want:   BooklogEntry{Month: "1997-06", Author: "Thomas S. Kuhn", Title: "The Structure of Scientific Revolutions", Genre: "Non-fiction"},
 			wantOk: true,
 		},
 		{
 			name:   "author_less",
 			line:   "06/00                           VPN                                     I",
-			want:   Book{Month: "2000-06", Author: "", Title: "VPN", Genre: "IT"},
+			want:   BooklogEntry{Month: "2000-06", Author: "", Title: "VPN", Genre: "IT"},
 			wantOk: true,
 		},
 		{
 			name:   "fr_genre_multibyte_author",
 			line:   "12/16   Sylvie Lainé            Voyage en France (Part 2)                   FR  9782370610072",
-			want:   Book{Month: "2016-12", Author: "Sylvie Lainé", Title: "Voyage en France (Part 2)", Genre: "French", ID: "9782370610072", IDType: "isbn"},
+			want:   BooklogEntry{Month: "2016-12", Author: "Sylvie Lainé", Title: "Voyage en France (Part 2)", Genre: "French", ID: "9782370610072", IDType: "isbn"},
 			wantOk: true,
 		},
 		{
 			name:   "unknown_genre_passthrough",
 			line:   "05/20   Some Author             Some Title                                  Z",
-			want:   Book{Month: "2020-05", Author: "Some Author", Title: "Some Title", Genre: "Z"},
+			want:   BooklogEntry{Month: "2020-05", Author: "Some Author", Title: "Some Title", Genre: "Z"},
 			wantOk: true,
 		},
 		{
 			name:   "blank_line",
 			line:   "   ",
-			want:   Book{},
+			want:   BooklogEntry{},
 			wantOk: false,
 		},
 		{
 			name:   "no_valid_month",
 			line:   "notamonth  Some Author             Some Title                              F",
-			want:   Book{},
+			want:   BooklogEntry{},
 			wantOk: false,
 		},
 		{
 			name:   "too_short", // non-blank but shorter than the title column
 			line:   "01/26 Short Line",
-			want:   Book{},
+			want:   BooklogEntry{},
 			wantOk: false,
 		},
 	}
@@ -211,5 +213,64 @@ func TestParseLine(t *testing.T) {
 				t.Errorf("parseLine() = %#v, want %#v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLoadBooklog(t *testing.T) {
+	want := []BooklogEntry{
+		{Month: "2026-05", Author: "Olaf Stapledon", Title: "Last and First Men", Genre: "Fiction", ID: "9781857988062", IDType: "isbn"},
+		{Month: "2015-11", Author: "Douglas Hubbard", Title: "How to Measure Anything", Genre: "Business"},
+	}
+	data := `[
+  {"month": "2026-05", "author": "Olaf Stapledon", "title": "Last and First Men", "genre": "Fiction", "id": "9781857988062", "id_type": "isbn"},
+  {"month": "2015-11", "author": "Douglas Hubbard", "title": "How to Measure Anything", "genre": "Business"}
+]`
+	path := filepath.Join(t.TempDir(), "books.json")
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadBooklog(path)
+	if err != nil {
+		t.Fatalf("LoadBooklog() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("LoadBooklog() = %#v, want %#v", got, want)
+	}
+}
+
+func TestLoadBooklogMissing(t *testing.T) {
+	if _, err := LoadBooklog(filepath.Join(t.TempDir(), "nope.json")); err == nil {
+		t.Error("LoadBooklog() on a missing file: got nil error, want error")
+	}
+}
+
+func TestCollateAuthors(t *testing.T) {
+	entries := []BooklogEntry{
+		{Author: "Iain Banks"},
+		{Author: "China Miéville"},
+		{Author: "Iain Banks"},
+		{Author: ""}, // empty author: not counted
+		{Author: "China Miéville"},
+		{Author: "Iain Banks"},
+		{Author: "Ursula Le Guin"},
+		{Author: "Ann Leckie"}, // ties with Le Guin at 1, alphabetical first
+	}
+
+	got := CollateAuthors(entries)
+	want := []AuthorCount{
+		{Author: "Iain Banks", Count: 3},
+		{Author: "China Miéville", Count: 2},
+		{Author: "Ann Leckie", Count: 1},     // tie broken alphabetically
+		{Author: "Ursula Le Guin", Count: 1}, // ...before this
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("CollateAuthors() = %#v, want %#v", got, want)
+	}
+}
+
+func TestCollateAuthorsEmpty(t *testing.T) {
+	if got := CollateAuthors(nil); len(got) != 0 {
+		t.Errorf("CollateAuthors(nil) = %#v, want empty", got)
 	}
 }

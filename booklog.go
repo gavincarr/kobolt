@@ -1,16 +1,19 @@
-package main
+package kobolt
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
 
-// Book is one parsed entry from the reading log. The struct field order fixes
-// the JSON key order; id/id_type are omitempty because older entries carry
-// neither.
-type Book struct {
+// BooklogEntry is one parsed entry from the reading log. The struct field order
+// fixes the JSON key order; ID/IDType are omitempty because older entries carry
+// neither. (Distinct from Book, which is a price-snapshot record.)
+type BooklogEntry struct {
 	Month  string `json:"month"`
 	Author string `json:"author"`
 	Title  string `json:"title"`
@@ -20,10 +23,18 @@ type Book struct {
 }
 
 // SkippedLine records a non-blank line that parseLine could not turn into a
-// Book, for the caller to report. LineNo is 1-based.
+// BooklogEntry, for the caller to report. LineNo is 1-based.
 type SkippedLine struct {
 	LineNo int
 	Text   string
+}
+
+// AuthorCount pairs an author with the number of entries attributed to them.
+// CollateAuthors returns these sorted by descending Count so a caller can walk
+// authors in decreasing-popularity order.
+type AuthorCount struct {
+	Author string
+	Count  int
 }
 
 // titleCol is the rune column where the title field begins. The log is
@@ -102,38 +113,38 @@ func genreName(code string) string {
 	return code
 }
 
-// parseLine parses one log line into a Book. ok is false for lines that should
-// be skipped: blank lines, lines shorter than the title column, lines without
-// a valid MM/YY month, and lines that leave no title text.
+// parseLine parses one log line into a BooklogEntry. ok is false for lines that
+// should be skipped: blank lines, lines shorter than the title column, lines
+// without a valid MM/YY month, and lines that leave no title text.
 //
 // The log is fixed-column but fields overflow their padding, so the parse is a
 // hybrid: the month is the leading MM/YY token, the author/title boundary is
 // the rune column titleCol, and the genre + optional id are right-anchored by
 // token pattern (which is robust to long titles that crowd the genre column).
-func parseLine(line string) (Book, bool) {
+func parseLine(line string) (BooklogEntry, bool) {
 	line = strings.TrimRight(line, " \t")
 	if strings.TrimSpace(line) == "" {
-		return Book{}, false
+		return BooklogEntry{}, false
 	}
 
 	r := []rune(line)
 	if len(r) < titleCol {
-		return Book{}, false
+		return BooklogEntry{}, false
 	}
 
 	month, ok := normalizeMonth(strings.TrimSpace(string(r[:5])))
 	if !ok {
-		return Book{}, false
+		return BooklogEntry{}, false
 	}
 
-	b := Book{
+	b := BooklogEntry{
 		Month:  month,
 		Author: strings.TrimSpace(string(r[5:titleCol])),
 	}
 
 	fields := strings.Fields(strings.TrimSpace(string(r[titleCol:])))
 	if len(fields) == 0 {
-		return Book{}, false
+		return BooklogEntry{}, false
 	}
 
 	// Right-anchor: pop an optional trailing id, then the genre code.
@@ -148,24 +159,65 @@ func parseLine(line string) (Book, bool) {
 
 	b.Title = strings.Join(fields, " ")
 	if b.Title == "" {
-		return Book{}, false
+		return BooklogEntry{}, false
 	}
 	return b, true
 }
 
-// parseBooklog parses the full log content into books, returning any non-blank
-// lines it could not parse (with 1-based line numbers) for the caller to
-// report. It is pure: no I/O, no logging. Blank lines are skipped silently.
-func parseBooklog(content string) (books []Book, skipped []SkippedLine) {
+// ParseBooklog parses the full log content into entries, returning any
+// non-blank lines it could not parse (with 1-based line numbers) for the caller
+// to report. It is pure: no I/O, no logging. Blank lines are skipped silently.
+func ParseBooklog(content string) (entries []BooklogEntry, skipped []SkippedLine) {
 	for i, line := range strings.Split(content, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		if b, ok := parseLine(line); ok {
-			books = append(books, b)
+			entries = append(entries, b)
 		} else {
 			skipped = append(skipped, SkippedLine{LineNo: i + 1, Text: line})
 		}
 	}
-	return books, skipped
+	return entries, skipped
+}
+
+// LoadBooklog reads a parsed-booklog JSON file (the output of ParseBooklog, as
+// written by the parse_booklog command) into a slice of entries. A missing or
+// unreadable file is an error, since the caller asked for a specific path.
+func LoadBooklog(path string) ([]BooklogEntry, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var entries []BooklogEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", path, err)
+	}
+	return entries, nil
+}
+
+// CollateAuthors tallies entries by author and returns the counts sorted by
+// descending frequency, ties broken by author name ascending, so a caller can
+// walk authors in decreasing-popularity order. Entries with an empty author are
+// not counted.
+func CollateAuthors(entries []BooklogEntry) []AuthorCount {
+	counts := make(map[string]int)
+	for _, e := range entries {
+		if e.Author == "" {
+			continue
+		}
+		counts[e.Author]++
+	}
+
+	out := make([]AuthorCount, 0, len(counts))
+	for author, n := range counts {
+		out = append(out, AuthorCount{Author: author, Count: n})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Author < out[j].Author
+	})
+	return out
 }

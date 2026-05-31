@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gavincarr/kobolt"
 	"github.com/gavincarr/kobolt/internal/env"
 	"github.com/jessevdk/go-flags"
 	"github.com/lmittmann/tint"
@@ -64,7 +65,7 @@ func run(opts Options) error {
 		return fmt.Errorf("read %s: %w", inPath, err)
 	}
 
-	books, skipped := parseBooklog(string(content))
+	books, skipped := kobolt.ParseBooklog(string(content))
 
 	if len(skipped) > 0 {
 		slog.Warn("skipped unparseable lines", "count", len(skipped))
