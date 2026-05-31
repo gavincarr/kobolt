@@ -101,3 +101,54 @@ func genreName(code string) string {
 	}
 	return code
 }
+
+// parseLine parses one log line into a Book. ok is false for lines that should
+// be skipped: blank lines, lines shorter than the title column, lines without
+// a valid MM/YY month, and lines that leave no title text.
+//
+// The log is fixed-column but fields overflow their padding, so the parse is a
+// hybrid: the month is the leading MM/YY token, the author/title boundary is
+// the rune column titleCol, and the genre + optional id are right-anchored by
+// token pattern (which is robust to long titles that crowd the genre column).
+func parseLine(line string) (Book, bool) {
+	line = strings.TrimRight(line, " \t")
+	if strings.TrimSpace(line) == "" {
+		return Book{}, false
+	}
+
+	r := []rune(line)
+	if len(r) < titleCol {
+		return Book{}, false
+	}
+
+	month, ok := normalizeMonth(strings.TrimSpace(string(r[:5])))
+	if !ok {
+		return Book{}, false
+	}
+
+	b := Book{
+		Month:  month,
+		Author: strings.TrimSpace(string(r[5:titleCol])),
+	}
+
+	fields := strings.Fields(strings.TrimSpace(string(r[titleCol:])))
+	if len(fields) == 0 {
+		return Book{}, false
+	}
+
+	// Right-anchor: pop an optional trailing id, then the genre code.
+	if id, idType, ok := matchID(fields[len(fields)-1]); ok {
+		b.ID, b.IDType = id, idType
+		fields = fields[:len(fields)-1]
+	}
+	if len(fields) > 0 && genreRe.MatchString(fields[len(fields)-1]) {
+		b.Genre = genreName(fields[len(fields)-1])
+		fields = fields[:len(fields)-1]
+	}
+
+	b.Title = strings.Join(fields, " ")
+	if b.Title == "" {
+		return Book{}, false
+	}
+	return b, true
+}
