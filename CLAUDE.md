@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-`kobolt` scrapes Kobo eBook list/sale prices for a file of URLs, optionally across multiple regional Kobo storefronts, and writes a dated JSON file next to the input. Commands live under `cmd/`: `get_list_prices` (the scraper), `diff_list_prices` and `arb_list_prices` (analyse snapshots), and `sync_wishlist` (pulls the URL list down from a Google Sheet — see below). The `data/` directory (input wishlists and dated outputs) is gitignored.
+`kobolt` scrapes Kobo eBook list/sale prices for a file of URLs, optionally across multiple regional Kobo storefronts, and writes a dated JSON file next to the input. Commands live under `cmd/`: `get_list_prices` (the scraper), `diff_list_prices` and `arb_list_prices` (analyse snapshots), `sync_wishlist` (pulls the URL list down from a Google Sheet — see below), and `parse_booklog` (parses the `~/Books` reading log into JSON — see below). The `data/` directory (input wishlists and dated outputs) is gitignored.
 
 ## Build and run
 
@@ -32,6 +32,21 @@ go build ./cmd/sync_wishlist
 The same Apps Script `/exec` deployment serves both directions: `?url=&title=` appends a row, `?action=list` returns column A as newline-separated plain text. The script runs as the user, so the sheet stays private — no API keys. The deployment URL is read from `KOBOLT_SHEET_URL` (kept in `.env.local`). `sync_wishlist` lowercases (Kobo URLs are case-insensitive, but the sheet sometimes has uppercase `/CC/LANG/` codes that would break sorting/deduping), dedups + sorts the URLs, and **atomically overwrites** the output file; a zero-URL response is refused rather than truncating the existing list. Run `sync_wishlist` before `get_list_prices` to scrape against the latest list.
 
 `sync_wishlist` is **silent by default** (cron-friendly) — only a duplicate-URL warning and errors surface. `-v` adds the info-level sync summary; `-vv` additionally itemises each duplicated URL at debug so they're easy to find and clean up in the sheet.
+
+## Reading log (parse_booklog)
+
+`parse_booklog` parses the personal, fixed-column reading log at `~/Books` into structured JSON:
+
+```
+go build ./cmd/parse_booklog
+./parse_booklog                       # parse ~/Books -> JSON on stdout
+./parse_booklog -o data/books.json    # atomic write to a file instead
+./parse_booklog path/to/log           # explicit input path (~ is expanded)
+./parse_booklog -v                    # add an info-level parse summary
+./parse_booklog -vv                   # additionally itemise skipped lines
+```
+
+The log is fixed-column but fields overflow their padding, so the parser is a hybrid: the month is the leading `MM/YY` token (normalised to `YYYY-MM`, pivot `yy<=26 -> 20yy` else `19yy`), the author/title boundary is **rune** column 32 (rune- not byte-indexed, so multibyte authors like `China Miéville` stay aligned), and the genre + optional ISBN/ASIN are right-anchored by token pattern. Genre codes map `F/N/I/C/B/K/FR -> Fiction/Non-fiction/IT/Christian/Business/Kids/French`; a trailing `*` (e.g. `C*`) is dropped and unknown codes pass through verbatim. `id`/`id_type` are `omitempty` (older entries have neither). Parsing is silent by default; unparseable lines are skipped (never fatal) and surface as warnings.
 
 ## Architecture and non-obvious decisions
 
