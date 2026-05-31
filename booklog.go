@@ -196,17 +196,54 @@ func LoadBooklog(path string) ([]BooklogEntry, error) {
 	return entries, nil
 }
 
-// CollateAuthors tallies entries by author and returns the counts sorted by
-// descending frequency, ties broken by author name ascending, so a caller can
-// walk authors in decreasing-popularity order. Entries with an empty author are
-// not counted.
+var (
+	// authorSplitRe separates the individual authors of a joint work: commas,
+	// "&", and the word "and" (\b so "Anderson"/"Holland" aren't split).
+	authorSplitRe = regexp.MustCompile(`(?i)\s*(?:,|&|\band\b)\s*`)
+	// edSuffixRe and etAlSuffixRe match trailing "(ed.)"/"(eds.)" and
+	// "et al."-style annotations (optional periods) that aren't part of a name.
+	edSuffixRe   = regexp.MustCompile(`(?i)\s*\(eds?\.?\)\s*$`)
+	etAlSuffixRe = regexp.MustCompile(`(?i)\s*,?\s*et\.?\s+al\.?\s*$`)
+)
+
+// splitAuthors decomposes a log author field into individual author names so
+// that joint works are collated per-author. It strips trailing editor/"et al."
+// annotations, splits on commas and "and"/"&", trims each part, and drops
+// empties (so a blank or annotation-only field yields nothing). Surnames shared
+// implicitly across a joint credit (e.g. "David & Leigh Eddings") can't be
+// recovered, hence "where possible".
+func splitAuthors(s string) []string {
+	var out []string
+	for _, part := range authorSplitRe.Split(s, -1) {
+		part = strings.TrimSpace(part)
+		// Strip suffixes to a fixed point in case more than one is present.
+		for {
+			prev := part
+			part = edSuffixRe.ReplaceAllString(part, "")
+			part = etAlSuffixRe.ReplaceAllString(part, "")
+			part = strings.TrimSpace(part)
+			if part == prev {
+				break
+			}
+		}
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+// CollateAuthors tallies entries by individual author and returns the counts
+// sorted by descending frequency, ties broken by author name ascending, so a
+// caller can walk authors in decreasing-popularity order. Joint-work credits
+// are split into individual authors via splitAuthors; empty/annotation-only
+// author fields contribute nothing.
 func CollateAuthors(entries []BooklogEntry) []AuthorCount {
 	counts := make(map[string]int)
 	for _, e := range entries {
-		if e.Author == "" {
-			continue
+		for _, a := range splitAuthors(e.Author) {
+			counts[a]++
 		}
-		counts[e.Author]++
 	}
 
 	out := make([]AuthorCount, 0, len(counts))

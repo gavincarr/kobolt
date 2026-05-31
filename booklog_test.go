@@ -245,6 +245,41 @@ func TestLoadBooklogMissing(t *testing.T) {
 	}
 }
 
+func TestSplitAuthors(t *testing.T) {
+	tests := []struct {
+		in   string
+		want []string
+	}{
+		{"Iain Banks", []string{"Iain Banks"}},
+		{"", nil},
+		{"   ", nil},
+		// suffixes stripped
+		{"T. F. Torrance (ed.)", []string{"T. F. Torrance"}},
+		{"Jane Doe (ed)", []string{"Jane Doe"}},
+		{"Some Org (eds.)", []string{"Some Org"}},
+		{"Betsy Beyer et al", []string{"Betsy Beyer"}},
+		{"Campbell Harvey et. al.", []string{"Campbell Harvey"}},
+		{"Mel Lindauer et al.", []string{"Mel Lindauer"}},
+		{"et al", nil}, // annotation-only -> nothing
+		// joint works split on comma / and / &
+		{"Rolsky and Williams", []string{"Rolsky", "Williams"}},
+		{"JFried and DHH", []string{"JFried", "DHH"}},
+		{"B Herbert & K Anderson", []string{"B Herbert", "K Anderson"}},
+		{"David & Leigh Eddings", []string{"David", "Leigh Eddings"}},
+		{"A, B, C", []string{"A", "B", "C"}},
+		{"Smith, Jones et al", []string{"Smith", "Jones"}},
+		// "and" only splits as a whole word, not inside Anderson/Holland
+		{"K Anderson", []string{"K Anderson"}},
+		{"Agnes Holland", []string{"Agnes Holland"}},
+	}
+	for _, tt := range tests {
+		got := splitAuthors(tt.in)
+		if !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("splitAuthors(%q) = %#v, want %#v", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestCollateAuthors(t *testing.T) {
 	entries := []BooklogEntry{
 		{Author: "Iain Banks"},
@@ -252,17 +287,17 @@ func TestCollateAuthors(t *testing.T) {
 		{Author: "Iain Banks"},
 		{Author: ""}, // empty author: not counted
 		{Author: "China Miéville"},
-		{Author: "Iain Banks"},
-		{Author: "Ursula Le Guin"},
-		{Author: "Ann Leckie"}, // ties with Le Guin at 1, alphabetical first
+		{Author: "Iain Banks and Ann Leckie"}, // joint work: each counted once
+		{Author: "Ursula Le Guin (ed.)"},      // suffix stripped before counting
+		{Author: "Ann Leckie"},                // ties with Le Guin at 2 vs 1
 	}
 
 	got := CollateAuthors(entries)
 	want := []AuthorCount{
 		{Author: "Iain Banks", Count: 3},
-		{Author: "China Miéville", Count: 2},
-		{Author: "Ann Leckie", Count: 1},     // tie broken alphabetically
-		{Author: "Ursula Le Guin", Count: 1}, // ...before this
+		{Author: "Ann Leckie", Count: 2},     // 1 solo + 1 from the joint work
+		{Author: "China Miéville", Count: 2}, // tie at 2, alphabetical: Ann < China
+		{Author: "Ursula Le Guin", Count: 1},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("CollateAuthors() = %#v, want %#v", got, want)
