@@ -17,6 +17,7 @@
 /dist/*
 /get_list_prices
 /go.work*
+/list_authors
 /node_modules/*
 /parse_booklog
 /pkg/linux_amd64/*
