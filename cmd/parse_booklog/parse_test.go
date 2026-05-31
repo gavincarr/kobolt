@@ -75,6 +75,40 @@ func TestGenreName(t *testing.T) {
 	_ = reflect.DeepEqual // keep import stable for later tasks
 }
 
+func TestParseBooklog(t *testing.T) {
+	content := "05/26   Olaf Stapledon          The Last and First Men                      F   9781857988062\n" +
+		"\n" + // blank line: skipped silently, not reported
+		"11/15   Douglas Hubbard         How to Measure Anything                     B\n" +
+		"notamonth  Bad Line                Whatever                                F\n" // unparseable: reported
+
+	books, skipped := parseBooklog(content)
+
+	wantBooks := []Book{
+		{Month: "2026-05", Author: "Olaf Stapledon", Title: "The Last and First Men", Genre: "Fiction", ID: "9781857988062", IDType: "isbn"},
+		{Month: "2015-11", Author: "Douglas Hubbard", Title: "How to Measure Anything", Genre: "Business"},
+	}
+	if !reflect.DeepEqual(books, wantBooks) {
+		t.Errorf("books = %#v, want %#v", books, wantBooks)
+	}
+
+	if len(skipped) != 1 {
+		t.Fatalf("skipped = %#v, want exactly 1 entry", skipped)
+	}
+	if skipped[0].LineNo != 4 {
+		t.Errorf("skipped[0].LineNo = %d, want 4", skipped[0].LineNo)
+	}
+}
+
+func TestParseBooklogEmpty(t *testing.T) {
+	books, skipped := parseBooklog("")
+	if books != nil {
+		t.Errorf("books = %#v, want nil", books)
+	}
+	if skipped != nil {
+		t.Errorf("skipped = %#v, want nil", skipped)
+	}
+}
+
 func TestParseLine(t *testing.T) {
 	tests := []struct {
 		name   string

@@ -152,3 +152,20 @@ func parseLine(line string) (Book, bool) {
 	}
 	return b, true
 }
+
+// parseBooklog parses the full log content into books, returning any non-blank
+// lines it could not parse (with 1-based line numbers) for the caller to
+// report. It is pure: no I/O, no logging. Blank lines are skipped silently.
+func parseBooklog(content string) (books []Book, skipped []SkippedLine) {
+	for i, line := range strings.Split(content, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if b, ok := parseLine(line); ok {
+			books = append(books, b)
+		} else {
+			skipped = append(skipped, SkippedLine{LineNo: i + 1, Text: line})
+		}
+	}
+	return books, skipped
+}
