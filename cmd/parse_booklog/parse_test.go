@@ -72,7 +72,6 @@ func TestGenreName(t *testing.T) {
 			t.Errorf("genreName(%q) = %q, want %q", tt.in, got, tt.want)
 		}
 	}
-	_ = reflect.DeepEqual // keep import stable for later tasks
 }
 
 func TestParseBooklog(t *testing.T) {
