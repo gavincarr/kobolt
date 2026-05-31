@@ -1,0 +1,12 @@
+import os
+
+# Rebuild booklog.json from the ~/Books reading log whenever the log is newer
+# (Snakemake compares input/output mtimes). Run from this data/ directory:
+#   snakemake
+rule booklog:
+    input:
+        os.path.expanduser("~/Books")
+    output:
+        "booklog.json"
+    shell:
+        "../bin/parse_booklog {input} -o {output}"

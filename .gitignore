@@ -12,6 +12,7 @@
 /c.out
 /go.work*
 /data/*
+!/data/Snakefile
 /delta/applied/*
 /diff_list_prices
 /dist/*
