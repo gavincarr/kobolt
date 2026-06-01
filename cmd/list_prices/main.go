@@ -153,11 +153,13 @@ func rank(priced []bookPrices, top int) []bookPrices {
 
 // render prints one line per book:
 //
-//	Title — Author (AUD 0.99 AU, 1.36 MY, 1.38 US)
+//	Title — Author (AUD 0.99 AU, 1.36 MY, 1.38 US, +39.4%)
 //
 // All prices are in the base currency (named once, up front); each is followed
-// by its uppercased region/store code, cheapest first. The parenthetical
-// pricing section is coloured by the book's cheapest price (see colourFor).
+// by its uppercased region/store code, cheapest first. When a book is priced in
+// more than one region, a trailing percentage shows how much dearer the most
+// expensive region is than the cheapest. The parenthetical pricing section is
+// coloured by the book's cheapest price (see colourFor).
 func render(w *os.File, priced []bookPrices, base string, useColor bool) {
 	for _, p := range priced {
 		var b strings.Builder
@@ -167,6 +169,11 @@ func render(w *os.File, priced []bookPrices, base string, useColor bool) {
 			} else {
 				fmt.Fprintf(&b, ", %s %s", formatPrice(r.inBase), strings.ToUpper(r.cc))
 			}
+		}
+		if len(p.regions) > 1 {
+			cheapest := p.regions[0].inBase
+			dearest := p.regions[len(p.regions)-1].inBase
+			fmt.Fprintf(&b, ", +%.1f%%", (dearest-cheapest)/cheapest*100)
 		}
 		section := "(" + b.String() + ")"
 		if useColor {
