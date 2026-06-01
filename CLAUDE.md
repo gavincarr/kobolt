@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-`kobolt` scrapes Kobo eBook list/sale prices for a file of URLs, optionally across multiple regional Kobo storefronts, and writes a dated JSON file next to the input. Commands live under `cmd/`: `get_list_prices` (the scraper), `diff_list_prices` and `arb_list_prices` (analyse snapshots), `sync_wishlist` (pulls the URL list down from a Google Sheet — see below), and `parse_booklog` (parses the `~/Books` reading log into JSON — see below). The `data/` directory (input wishlists and dated outputs) is gitignored.
+`kobolt` scrapes Kobo eBook list/sale prices for a file of URLs, optionally across multiple regional Kobo storefronts, and writes a dated JSON file next to the input. Commands live under `cmd/`: `get_list_prices` (the scraper), `diff_list_prices`, `arb_list_prices` and `list_prices` (analyse snapshots), `sync_wishlist` (pulls the URL list down from a Google Sheet — see below), and `parse_booklog` (parses the `~/Books` reading log into JSON — see below). The `data/` directory (input wishlists and dated outputs) is gitignored.
 
 Flag parsing across all commands uses `alecthomas/kong` (with `gavincarr/kong-help-colours` for colourised `--help`). Repeatable verbosity flags (`-v`/`-vv`) are kong `type:"counter"` ints.
 
