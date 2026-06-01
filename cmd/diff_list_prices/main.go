@@ -15,7 +15,7 @@ import (
 )
 
 type CLI struct {
-	NoColor bool `name:"no-color" help:"Disable coloured output"`
+	NoColor bool `short:"C" name:"no-color" help:"Disable coloured output"`
 
 	Old string `arg:"" name:"old.json" help:"Earlier snapshot"`
 	New string `arg:"" name:"new.json" help:"Later snapshot"`

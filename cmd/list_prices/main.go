@@ -25,7 +25,7 @@ import (
 type CLI struct {
 	Top        int    `short:"n" default:"0" help:"Show at most N books (0 = no limit)"`
 	Base       string `short:"b" default:"AUD" help:"Base currency for normalization (ISO 4217)"`
-	NoColor    bool   `name:"no-color" help:"Disable coloured output"`
+	NoColor    bool   `short:"C" name:"no-color" help:"Disable coloured output"`
 
 	Snapshot string `arg:"" name:"snapshot.json" help:"Snapshot to analyze"`
 }
