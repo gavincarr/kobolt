@@ -10,23 +10,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alecthomas/kong"
 	"github.com/gavincarr/kobolt"
 	"github.com/gavincarr/kobolt/internal/env"
-	"github.com/jessevdk/go-flags"
+	helpcolours "github.com/gavincarr/kong-help-colours"
 	"github.com/lmittmann/tint"
 	"golang.org/x/term"
 )
 
-type Options struct {
-	Top        int     `short:"n" long:"top" default:"20" description:"Show at most N books with the largest cross-region spreads"`
-	MinSpread  float64 `short:"m" long:"min-spread" default:"5" description:"Skip books whose max cross-region spread is below this percent"`
-	Base       string  `short:"b" long:"base" default:"AUD" description:"Base currency for normalization (ISO 4217)"`
-	ForceColor bool    `short:"C" long:"force-color" description:"Emit colour even when stdout is not a TTY (e.g. piping to less -R)"`
-	NoColor    bool    `long:"no-color" description:"Disable coloured output even on a TTY"`
+type CLI struct {
+	Top        int     `short:"n" default:"20" help:"Show at most N books with the largest cross-region spreads"`
+	MinSpread  float64 `short:"m" name:"min-spread" default:"5" help:"Skip books whose max cross-region spread is below this percent"`
+	Base       string  `short:"b" default:"AUD" help:"Base currency for normalization (ISO 4217)"`
+	ForceColor bool    `short:"C" name:"force-color" help:"Emit colour even when stdout is not a TTY (e.g. piping to less -R)"`
+	NoColor    bool    `name:"no-color" help:"Disable coloured output even on a TTY"`
 
-	Args struct {
-		Snapshot string `positional-arg-name:"snapshot.json" description:"Snapshot to analyze"`
-	} `positional-args:"yes" required:"yes"`
+	Snapshot string `arg:"" name:"snapshot.json" help:"Snapshot to analyze"`
 }
 
 type regionEntry struct {
@@ -53,47 +52,47 @@ const (
 func main() {
 	env.Load()
 
-	var opts Options
-	if _, err := flags.NewParser(&opts, flags.Default).Parse(); err != nil {
-		if flagsErr, ok := err.(*flags.Error); ok && flagsErr.Type == flags.ErrHelp {
-			os.Exit(0)
-		}
-		os.Exit(1)
-	}
+	var cli CLI
+	kong.Parse(&cli,
+		kong.Name("arb_list_prices"),
+		kong.Description("Rank books by cross-region price spread (arbitrage), normalised to a base currency."),
+		kong.Help(helpcolours.Help),
+		kong.ShortHelp(helpcolours.ShortHelp),
+	)
 
 	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: slog.LevelInfo})))
 
-	if err := run(opts); err != nil {
+	if err := run(cli); err != nil {
 		slog.Error("failed", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(opts Options) error {
-	books, err := kobolt.LoadSnapshot(opts.Args.Snapshot)
+func run(cli CLI) error {
+	books, err := kobolt.LoadSnapshot(cli.Snapshot)
 	if err != nil {
 		return fmt.Errorf("load snapshot: %w", err)
 	}
 	if len(books) == 0 {
-		return fmt.Errorf("snapshot %s is empty", opts.Args.Snapshot)
+		return fmt.Errorf("snapshot %s is empty", cli.Snapshot)
 	}
 
-	base := strings.ToUpper(opts.Base)
-	cacheDir := filepath.Dir(opts.Args.Snapshot)
+	base := strings.ToUpper(cli.Base)
+	cacheDir := filepath.Dir(cli.Snapshot)
 	rates, err := kobolt.LoadOrFetchRates(cacheDir, base, time.Now())
 	if err != nil {
 		return err
 	}
 
 	arbs := computeArbs(books, rates, base)
-	arbs = filterAndRank(arbs, opts.MinSpread, opts.Top)
+	arbs = filterAndRank(arbs, cli.MinSpread, cli.Top)
 
 	if len(arbs) == 0 {
-		fmt.Fprintf(os.Stderr, "no books with cross-region spread ≥ %g%%\n", opts.MinSpread)
+		fmt.Fprintf(os.Stderr, "no books with cross-region spread ≥ %g%%\n", cli.MinSpread)
 		return nil
 	}
 
-	useColor := !opts.NoColor && (opts.ForceColor || term.IsTerminal(int(os.Stdout.Fd())))
+	useColor := !cli.NoColor && (cli.ForceColor || term.IsTerminal(int(os.Stdout.Fd())))
 	render(os.Stdout, arbs, base, useColor)
 	return nil
 }

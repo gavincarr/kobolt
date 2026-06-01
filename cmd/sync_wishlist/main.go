@@ -13,17 +13,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alecthomas/kong"
 	"github.com/gavincarr/kobolt/internal/env"
-	"github.com/jessevdk/go-flags"
+	helpcolours "github.com/gavincarr/kong-help-colours"
 	"github.com/lmittmann/tint"
 )
 
-type Options struct {
-	Verbose []bool `short:"v" long:"verbose" description:"Verbose output: -v logs the sync summary (info), -vv also itemises duplicate URLs (debug)"`
+type CLI struct {
+	Verbose int `short:"v" type:"counter" help:"Verbose output: -v logs the sync summary (info), -vv also itemises duplicate URLs (debug)"`
 
-	Args struct {
-		Output string `positional-arg-name:"output" description:"Output path for the wishlist (default data/wishlist.txt)"`
-	} `positional-args:"yes"`
+	Output string `arg:"" optional:"" help:"Output path for the wishlist (default data/wishlist.txt)"`
 }
 
 const defaultOutput = "data/wishlist.txt"
@@ -35,38 +34,38 @@ const fetchTimeout = 30 * time.Second
 func main() {
 	env.Load()
 
-	var opts Options
-	if _, err := flags.NewParser(&opts, flags.Default).Parse(); err != nil {
-		if flagsErr, ok := err.(*flags.Error); ok && flagsErr.Type == flags.ErrHelp {
-			os.Exit(0)
-		}
-		os.Exit(1)
-	}
+	var cli CLI
+	kong.Parse(&cli,
+		kong.Name("sync_wishlist"),
+		kong.Description("Pull the wishlist URL list down from the Google Sheet into a local file."),
+		kong.Help(helpcolours.Help),
+		kong.ShortHelp(helpcolours.ShortHelp),
+	)
 
 	// Silent by default: only warnings (duplicate URLs) and errors surface.
 	// -v lifts to info (the sync summary), -vv to debug (itemised duplicates).
 	level := slog.LevelWarn
 	switch {
-	case len(opts.Verbose) >= 2:
+	case cli.Verbose >= 2:
 		level = slog.LevelDebug
-	case len(opts.Verbose) >= 1:
+	case cli.Verbose >= 1:
 		level = slog.LevelInfo
 	}
 	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: level})))
 
-	if err := run(opts); err != nil {
+	if err := run(cli); err != nil {
 		slog.Error("failed", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(opts Options) error {
+func run(cli CLI) error {
 	sheetURL := os.Getenv("KOBOLT_SHEET_URL")
 	if sheetURL == "" {
 		return errors.New("KOBOLT_SHEET_URL is not set (put it in .env.local)")
 	}
 
-	outPath := opts.Args.Output
+	outPath := cli.Output
 	if outPath == "" {
 		outPath = defaultOutput
 	}

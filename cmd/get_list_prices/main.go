@@ -13,23 +13,22 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alecthomas/kong"
 	"github.com/chromedp/chromedp"
 	"github.com/gavincarr/kobolt"
 	"github.com/gavincarr/kobolt/internal/env"
-	"github.com/jessevdk/go-flags"
+	helpcolours "github.com/gavincarr/kong-help-colours"
 	"github.com/lmittmann/tint"
 )
 
-type Options struct {
-	Concurrent int    `short:"c" long:"concurrent" default:"3" description:"Number of concurrent browser tabs"`
-	Timeout    int    `short:"t" long:"timeout" default:"90" description:"Per-URL timeout in seconds"`
-	CC         string `short:"C" long:"cc" env:"KOBOLT_CC" description:"Comma-separated ISO 3166-1 alpha-2 country codes (e.g. my,au,us). If unset, the region embedded in each input URL is used."`
-	Headful    bool   `long:"headful" description:"Run browser in headful (visible) mode for debugging"`
-	Verbose    []bool `short:"v" long:"verbose" description:"Enable debug logging; repeat (-vv) to also dump the raw gizmo config per URL"`
+type CLI struct {
+	Concurrent int    `short:"c" default:"3" help:"Number of concurrent browser tabs"`
+	Timeout    int    `short:"t" default:"90" help:"Per-URL timeout in seconds"`
+	CC         string `short:"C" env:"KOBOLT_CC" help:"Comma-separated ISO 3166-1 alpha-2 country codes (e.g. my,au,us). If unset, the region embedded in each input URL is used."`
+	Headful    bool   `help:"Run browser in headful (visible) mode for debugging"`
+	Verbose    int    `short:"v" type:"counter" help:"Enable debug logging; repeat (-vv) to also dump the raw gizmo config per URL"`
 
-	Args struct {
-		URLFile string `positional-arg-name:"url-file" description:"File containing one Kobo book URL per line"`
-	} `positional-args:"yes" required:"yes"`
+	URLFile string `arg:"" name:"url-file" help:"File containing one Kobo book URL per line"`
 }
 
 // Cloudflare blocks the classic --headless mode; the "new" headless and a
@@ -39,28 +38,28 @@ const realisticUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, 
 func main() {
 	env.Load()
 
-	var opts Options
-	if _, err := flags.NewParser(&opts, flags.Default).Parse(); err != nil {
-		if flagsErr, ok := err.(*flags.Error); ok && flagsErr.Type == flags.ErrHelp {
-			os.Exit(0)
-		}
-		os.Exit(1)
-	}
+	var cli CLI
+	kong.Parse(&cli,
+		kong.Name("get_list_prices"),
+		kong.Description("Scrape Kobo list/sale prices for a file of URLs across one or more regional storefronts."),
+		kong.Help(helpcolours.Help),
+		kong.ShortHelp(helpcolours.ShortHelp),
+	)
 
 	level := slog.LevelInfo
-	if len(opts.Verbose) >= 1 {
+	if cli.Verbose >= 1 {
 		level = slog.LevelDebug
 	}
 	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: level})))
 
-	if err := run(opts); err != nil {
+	if err := run(cli); err != nil {
 		slog.Error("failed", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(opts Options) error {
-	urls, err := readURLs(opts.Args.URLFile)
+func run(cli CLI) error {
+	urls, err := readURLs(cli.URLFile)
 	if err != nil {
 		return fmt.Errorf("read url file: %w", err)
 	}
@@ -68,12 +67,12 @@ func run(opts Options) error {
 		return errors.New("no URLs found in input file")
 	}
 
-	ccs, err := parseCCs(opts.CC)
+	ccs, err := parseCCs(cli.CC)
 	if err != nil {
 		return fmt.Errorf("invalid --cc: %w", err)
 	}
 
-	outPath := kobolt.OutputPath(opts.Args.URLFile, time.Now())
+	outPath := kobolt.OutputPath(cli.URLFile, time.Now())
 	prior, err := kobolt.LoadSnapshot(outPath)
 	if err != nil {
 		return fmt.Errorf("load existing output: %w", err)
@@ -93,7 +92,7 @@ func run(opts Options) error {
 	slog.Info("plan", "urls", len(urls), "regions", ccs, "jobs", len(jobs))
 
 	if len(jobs) > 0 {
-		if err := scrape(opts, books, jobs); err != nil {
+		if err := scrape(cli, books, jobs); err != nil {
 			return err
 		}
 	} else {
@@ -148,13 +147,13 @@ func plan(urls []string, ccs []string, existing map[string]*kobolt.Book) ([]*kob
 	return books, jobs, nil
 }
 
-func scrape(opts Options, books []*kobolt.Book, jobs []job) error {
+func scrape(cli CLI, books []*kobolt.Book, jobs []job) error {
 	allocOpts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
 		chromedp.UserAgent(realisticUA),
 		chromedp.WindowSize(1280, 900),
 	)
-	if !opts.Headful {
+	if !cli.Headful {
 		allocOpts = append(allocOpts, chromedp.Flag("headless", "new"))
 	} else {
 		allocOpts = append(allocOpts, chromedp.Flag("headless", false))
@@ -170,12 +169,12 @@ func scrape(opts Options, books []*kobolt.Book, jobs []job) error {
 	jobCh := make(chan job)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	for w := 0; w < opts.Concurrent; w++ {
+	for w := 0; w < cli.Concurrent; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for j := range jobCh {
-				rp, isbn, title, author := scrapeOne(browserCtx, j.url, time.Duration(opts.Timeout)*time.Second, len(opts.Verbose) >= 2)
+				rp, isbn, title, author := scrapeOne(browserCtx, j.url, time.Duration(cli.Timeout)*time.Second, cli.Verbose >= 2)
 				logResult(j.url, j.cc, rp)
 				mu.Lock()
 				b := books[j.bookIdx]

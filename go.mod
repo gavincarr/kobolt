@@ -3,8 +3,9 @@ module github.com/gavincarr/kobolt
 go 1.26
 
 require (
+	github.com/alecthomas/kong v1.15.0
 	github.com/chromedp/chromedp v0.15.1
-	github.com/jessevdk/go-flags v1.6.1
+	github.com/gavincarr/kong-help-colours v0.1.0
 	github.com/joho/godotenv v1.5.1
 	github.com/lmittmann/tint v1.1.3
 	golang.org/x/term v0.43.0

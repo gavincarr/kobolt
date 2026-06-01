@@ -7,21 +7,20 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/alecthomas/kong"
 	"github.com/gavincarr/kobolt"
 	"github.com/gavincarr/kobolt/internal/env"
-	"github.com/jessevdk/go-flags"
+	helpcolours "github.com/gavincarr/kong-help-colours"
 	"github.com/lmittmann/tint"
 	"golang.org/x/term"
 )
 
-type Options struct {
-	ForceColor bool `short:"C" long:"force-color" description:"Emit colour even when stdout is not a TTY (e.g. piping to less -R)"`
-	NoColor    bool `long:"no-color" description:"Disable coloured output even on a TTY"`
+type CLI struct {
+	ForceColor bool `short:"C" name:"force-color" help:"Emit colour even when stdout is not a TTY (e.g. piping to less -R)"`
+	NoColor    bool `name:"no-color" help:"Disable coloured output even on a TTY"`
 
-	Args struct {
-		Old string `positional-arg-name:"old.json" description:"Earlier snapshot"`
-		New string `positional-arg-name:"new.json" description:"Later snapshot"`
-	} `positional-args:"yes" required:"yes"`
+	Old string `arg:"" name:"old.json" help:"Earlier snapshot"`
+	New string `arg:"" name:"new.json" help:"Later snapshot"`
 }
 
 type diff struct {
@@ -44,30 +43,30 @@ const (
 func main() {
 	env.Load()
 
-	var opts Options
-	if _, err := flags.NewParser(&opts, flags.Default).Parse(); err != nil {
-		if flagsErr, ok := err.(*flags.Error); ok && flagsErr.Type == flags.ErrHelp {
-			os.Exit(0)
-		}
-		os.Exit(1)
-	}
+	var cli CLI
+	kong.Parse(&cli,
+		kong.Name("diff_list_prices"),
+		kong.Description("Show price changes between two snapshots, ranked by percent change."),
+		kong.Help(helpcolours.Help),
+		kong.ShortHelp(helpcolours.ShortHelp),
+	)
 
 	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: slog.LevelInfo})))
 
-	if err := run(opts); err != nil {
+	if err := run(cli); err != nil {
 		slog.Error("failed", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(opts Options) error {
-	oldBooks, err := kobolt.LoadSnapshot(opts.Args.Old)
+func run(cli CLI) error {
+	oldBooks, err := kobolt.LoadSnapshot(cli.Old)
 	if err != nil {
-		return fmt.Errorf("load %s: %w", opts.Args.Old, err)
+		return fmt.Errorf("load %s: %w", cli.Old, err)
 	}
-	newBooks, err := kobolt.LoadSnapshot(opts.Args.New)
+	newBooks, err := kobolt.LoadSnapshot(cli.New)
 	if err != nil {
-		return fmt.Errorf("load %s: %w", opts.Args.New, err)
+		return fmt.Errorf("load %s: %w", cli.New, err)
 	}
 
 	oldByURL := make(map[string]*kobolt.Book, len(oldBooks))
@@ -91,7 +90,7 @@ func run(opts Options) error {
 		return diffs[i].cc < diffs[j].cc
 	})
 
-	useColor := !opts.NoColor && (opts.ForceColor || term.IsTerminal(int(os.Stdout.Fd())))
+	useColor := !cli.NoColor && (cli.ForceColor || term.IsTerminal(int(os.Stdout.Fd())))
 	render(os.Stdout, diffs, useColor)
 	return nil
 }

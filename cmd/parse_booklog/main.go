@@ -8,19 +8,18 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/alecthomas/kong"
 	"github.com/gavincarr/kobolt"
 	"github.com/gavincarr/kobolt/internal/env"
-	"github.com/jessevdk/go-flags"
+	helpcolours "github.com/gavincarr/kong-help-colours"
 	"github.com/lmittmann/tint"
 )
 
-type Options struct {
-	Outfile string `short:"o" long:"outfile" description:"Write JSON output to FILE instead of stdout"`
-	Verbose []bool `short:"v" long:"verbose" description:"Verbose output: -v logs a parse summary (info), -vv also logs skipped lines (debug)"`
+type CLI struct {
+	Outfile string `short:"o" placeholder:"FILE" help:"Write JSON output to FILE instead of stdout"`
+	Verbose int    `short:"v" type:"counter" help:"Verbose output: -v logs a parse summary (info), -vv also logs skipped lines (debug)"`
 
-	Args struct {
-		Input string `positional-arg-name:"input" description:"Input booklog path (default ~/Books)"`
-	} `positional-args:"yes"`
+	Input string `arg:"" optional:"" help:"Input booklog path (default ~/Books)"`
 }
 
 const defaultInput = "~/Books"
@@ -28,33 +27,33 @@ const defaultInput = "~/Books"
 func main() {
 	env.Load()
 
-	var opts Options
-	if _, err := flags.NewParser(&opts, flags.Default).Parse(); err != nil {
-		if flagsErr, ok := err.(*flags.Error); ok && flagsErr.Type == flags.ErrHelp {
-			os.Exit(0)
-		}
-		os.Exit(1)
-	}
+	var cli CLI
+	kong.Parse(&cli,
+		kong.Name("parse_booklog"),
+		kong.Description("Parse the fixed-column ~/Books reading log into structured JSON."),
+		kong.Help(helpcolours.Help),
+		kong.ShortHelp(helpcolours.ShortHelp),
+	)
 
 	// Silent by default: skipped lines surface as warnings. -v adds the parse
 	// summary (info); -vv itemises skipped lines (debug).
 	level := slog.LevelWarn
 	switch {
-	case len(opts.Verbose) >= 2:
+	case cli.Verbose >= 2:
 		level = slog.LevelDebug
-	case len(opts.Verbose) >= 1:
+	case cli.Verbose >= 1:
 		level = slog.LevelInfo
 	}
 	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: level})))
 
-	if err := run(opts); err != nil {
+	if err := run(cli); err != nil {
 		slog.Error("failed", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(opts Options) error {
-	inPath := opts.Args.Input
+func run(cli CLI) error {
+	inPath := cli.Input
 	if inPath == "" {
 		inPath = defaultInput
 	}
@@ -81,14 +80,14 @@ func run(opts Options) error {
 	}
 	out = append(out, '\n')
 
-	if opts.Outfile == "" {
+	if cli.Outfile == "" {
 		if _, err := os.Stdout.Write(out); err != nil {
 			return fmt.Errorf("write stdout: %w", err)
 		}
 		return nil
 	}
-	if err := atomicWrite(opts.Outfile, out); err != nil {
-		return fmt.Errorf("write %s: %w", opts.Outfile, err)
+	if err := atomicWrite(cli.Outfile, out); err != nil {
+		return fmt.Errorf("write %s: %w", cli.Outfile, err)
 	}
 	return nil
 }
