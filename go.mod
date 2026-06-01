@@ -8,7 +8,6 @@ require (
 	github.com/gavincarr/kong-help-colours v0.1.0
 	github.com/joho/godotenv v1.5.1
 	github.com/lmittmann/tint v1.1.3
-	golang.org/x/term v0.43.0
 )
 
 require (
@@ -19,4 +18,5 @@ require (
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/term v0.43.0 // indirect
 )

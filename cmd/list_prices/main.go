@@ -20,14 +20,12 @@ import (
 	"github.com/gavincarr/kobolt/internal/env"
 	helpcolours "github.com/gavincarr/kong-help-colours"
 	"github.com/lmittmann/tint"
-	"golang.org/x/term"
 )
 
 type CLI struct {
 	Top        int    `short:"n" default:"0" help:"Show at most N books (0 = no limit)"`
 	Base       string `short:"b" default:"AUD" help:"Base currency for normalization (ISO 4217)"`
-	ForceColor bool   `short:"C" name:"force-color" help:"Emit colour even when stdout is not a TTY (e.g. piping to less -R)"`
-	NoColor    bool   `name:"no-color" help:"Disable coloured output even on a TTY"`
+	NoColor    bool   `name:"no-color" help:"Disable coloured output"`
 
 	Snapshot string `arg:"" name:"snapshot.json" help:"Snapshot to analyze"`
 }
@@ -97,7 +95,7 @@ func run(cli CLI) error {
 		return nil
 	}
 
-	useColor := !cli.NoColor && (cli.ForceColor || term.IsTerminal(int(os.Stdout.Fd())))
+	useColor := !cli.NoColor
 	render(os.Stdout, priced, base, useColor)
 	return nil
 }

@@ -12,12 +12,10 @@ import (
 	"github.com/gavincarr/kobolt/internal/env"
 	helpcolours "github.com/gavincarr/kong-help-colours"
 	"github.com/lmittmann/tint"
-	"golang.org/x/term"
 )
 
 type CLI struct {
-	ForceColor bool `short:"C" name:"force-color" help:"Emit colour even when stdout is not a TTY (e.g. piping to less -R)"`
-	NoColor    bool `name:"no-color" help:"Disable coloured output even on a TTY"`
+	NoColor bool `name:"no-color" help:"Disable coloured output"`
 
 	Old string `arg:"" name:"old.json" help:"Earlier snapshot"`
 	New string `arg:"" name:"new.json" help:"Later snapshot"`
@@ -90,7 +88,7 @@ func run(cli CLI) error {
 		return diffs[i].cc < diffs[j].cc
 	})
 
-	useColor := !cli.NoColor && (cli.ForceColor || term.IsTerminal(int(os.Stdout.Fd())))
+	useColor := !cli.NoColor
 	render(os.Stdout, diffs, useColor)
 	return nil
 }

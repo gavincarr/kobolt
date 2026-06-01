@@ -15,15 +15,13 @@ import (
 	"github.com/gavincarr/kobolt/internal/env"
 	helpcolours "github.com/gavincarr/kong-help-colours"
 	"github.com/lmittmann/tint"
-	"golang.org/x/term"
 )
 
 type CLI struct {
 	Top        int     `short:"n" default:"20" help:"Show at most N books with the largest cross-region spreads"`
 	MinSpread  float64 `short:"m" name:"min-spread" default:"5" help:"Skip books whose max cross-region spread is below this percent"`
 	Base       string  `short:"b" default:"AUD" help:"Base currency for normalization (ISO 4217)"`
-	ForceColor bool    `short:"C" name:"force-color" help:"Emit colour even when stdout is not a TTY (e.g. piping to less -R)"`
-	NoColor    bool    `name:"no-color" help:"Disable coloured output even on a TTY"`
+	NoColor    bool    `name:"no-color" help:"Disable coloured output"`
 
 	Snapshot string `arg:"" name:"snapshot.json" help:"Snapshot to analyze"`
 }
@@ -92,7 +90,7 @@ func run(cli CLI) error {
 		return nil
 	}
 
-	useColor := !cli.NoColor && (cli.ForceColor || term.IsTerminal(int(os.Stdout.Fd())))
+	useColor := !cli.NoColor
 	render(os.Stdout, arbs, base, useColor)
 	return nil
 }
