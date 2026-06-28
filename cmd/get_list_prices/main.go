@@ -63,8 +63,9 @@ func run(cli CLI) error {
 	if err != nil {
 		return fmt.Errorf("read url file: %w", err)
 	}
+	urls = filterKoboURLs(urls)
 	if len(urls) == 0 {
-		return errors.New("no URLs found in input file")
+		return errors.New("no supported (kobo.com) URLs found in input file")
 	}
 
 	ccs, err := parseCCs(cli.CC)
@@ -245,6 +246,20 @@ func isAlpha(s string) bool {
 		}
 	}
 	return true
+}
+
+// filterKoboURLs drops URLs whose host isn't kobo.com (or a subdomain),
+// warning on each so unsupported entries are easy to spot and clean up.
+func filterKoboURLs(urls []string) []string {
+	out := urls[:0:0]
+	for _, u := range urls {
+		if kobolt.IsKoboURL(u) {
+			out = append(out, u)
+			continue
+		}
+		slog.Info("skipping unsupported URL (host is not kobo.com)", "url", u)
+	}
+	return out
 }
 
 func readURLs(path string) ([]string, error) {
