@@ -26,7 +26,7 @@ type CLI struct {
 	Timeout    int    `short:"t" default:"90" help:"Per-URL timeout in seconds"`
 	CC         string `short:"C" env:"KOBOLT_CC" help:"Comma-separated ISO 3166-1 alpha-2 country codes (e.g. my,au,us). If unset, the region embedded in each input URL is used."`
 	Headful    bool   `help:"Run browser in headful (visible) mode for debugging"`
-	Verbose    int    `short:"v" type:"counter" help:"Enable debug logging; repeat (-vv) to also dump the raw gizmo config per URL"`
+	Verbose    int    `short:"v" type:"counter" help:"Enable debug logging; repeat (-vv) to also dump the raw price data (gizmo config or RSC priceDetail) per URL"`
 
 	URLFile string `arg:"" name:"url-file" help:"File containing one Kobo book URL per line"`
 }
@@ -312,27 +312,13 @@ func scrapeOne(browserCtx context.Context, url string, timeout time.Duration, du
 	ctx, cancel := context.WithTimeout(tabCtx, timeout)
 	defer cancel()
 
-	var configJSON string
-	var ok bool
-	if err := chromedp.Run(ctx,
-		chromedp.Navigate(url),
-		chromedp.WaitReady("#ratings-widget-details-wrapper", chromedp.ByID),
-		chromedp.AttributeValue("#ratings-widget-details-wrapper", "data-kobo-gizmo-config", &configJSON, &ok, chromedp.ByID),
-	); err != nil {
-		rp.Error = fmt.Sprintf("navigate/extract: %v", err)
+	if err := navigate(ctx, url); err != nil {
+		rp.Error = fmt.Sprintf("navigate: %v", err)
 		return rp, "", "", ""
 	}
-	if !ok || configJSON == "" {
-		rp.Error = "data-kobo-gizmo-config attribute missing"
-		return rp, "", "", ""
-	}
-	if dumpRaw {
-		slog.Debug("raw gizmo config", "url", url, "config", configJSON)
-	}
-
-	isbn, title, author, perr := parseGizmoConfig(configJSON, rp)
-	if perr != nil {
-		rp.Error = fmt.Sprintf("parse: %v", perr)
+	isbn, title, author, err := extractPrices(ctx, url, rp, dumpRaw)
+	if err != nil {
+		rp.Error = err.Error()
 		return rp, "", "", ""
 	}
 	return rp, isbn, title, author
