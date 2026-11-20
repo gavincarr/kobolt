@@ -88,8 +88,9 @@ func run(cli CLI) error {
 	}
 	slog.Info("plan", "urls", len(urls), "regions", ccs, "jobs", len(jobs))
 
+	failed := 0
 	if len(jobs) > 0 {
-		if err := scrape(cli, books, jobs); err != nil {
+		if failed, err = scrape(cli, books, jobs); err != nil {
 			return err
 		}
 	} else {
@@ -100,6 +101,12 @@ func run(cli CLI) error {
 		return fmt.Errorf("write output: %w", err)
 	}
 	slog.Info("wrote output", "path", outPath, "records", len(books))
+	// Exit non-zero only when nothing succeeded, so cron flags a wholesale
+	// breakage (e.g. a Kobo page change) without nagging about stragglers,
+	// which are retried on the next run anyway.
+	if len(jobs) > 0 && failed == len(jobs) {
+		return fmt.Errorf("all %d scrape jobs failed", failed)
+	}
 	return nil
 }
 
@@ -144,7 +151,8 @@ func plan(urls []string, ccs []string, existing map[string]*kobolt.Book) ([]*kob
 	return books, jobs, nil
 }
 
-func scrape(cli CLI, books []*kobolt.Book, jobs []job) error {
+// scrape runs all jobs and returns the number that failed.
+func scrape(cli CLI, books []*kobolt.Book, jobs []job) (failed int, err error) {
 	allocOpts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
 		chromedp.WindowSize(1280, 900),
@@ -163,7 +171,7 @@ func scrape(cli CLI, books []*kobolt.Book, jobs []job) error {
 	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
 	defer cancelBrowser()
 	if err := chromedp.Run(browserCtx); err != nil {
-		return fmt.Errorf("launch browser: %w", err)
+		return 0, fmt.Errorf("launch browser: %w", err)
 	}
 
 	jobCh := make(chan job)
@@ -201,9 +209,13 @@ func scrape(cli CLI, books []*kobolt.Book, jobs []job) error {
 	close(jobCh)
 	wg.Wait()
 	_, unavailable, failed := prog.counts()
-	slog.Info("scrape complete", "jobs", len(jobs), "ok", len(jobs)-unavailable-failed,
+	level := slog.LevelInfo
+	if failed > 0 {
+		level = slog.LevelWarn
+	}
+	slog.Log(context.Background(), level, "scrape complete", "jobs", len(jobs), "ok", len(jobs)-unavailable-failed,
 		"unavailable", unavailable, "failed", failed)
-	return nil
+	return failed, nil
 }
 
 // progress counts completed and failed jobs across workers. The counters and
