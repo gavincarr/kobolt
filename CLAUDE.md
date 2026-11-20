@@ -15,7 +15,8 @@ go build ./cmd/get_list_prices
 ./get_list_prices data/wishlist.txt                # single-region (region taken from each URL)
 ./get_list_prices --cc my,au,us data/wishlist.txt  # multi-region
 KOBOLT_CC=my,au ./get_list_prices data/wishlist.txt
-./get_list_prices -v data/wishlist.txt             # debug logging incl. raw gizmo config
+./get_list_prices -v data/wishlist.txt             # debug logging
+./get_list_prices -vv data/wishlist.txt            # also dump raw price data (gizmo config / RSC priceDetail)
 ./get_list_prices --headful data/wishlist.txt      # visible Chrome for debugging
 ```
 
@@ -57,13 +58,27 @@ The log is fixed-column but fields overflow their padding, so the parser is a hy
 - `--headless=new` (not legacy `--headless`) plus a realistic UA — without these the page stalls on the challenge.
 - Fresh tab (`chromedp.NewContext(browserCtx)`) per URL. Reusing a tab across navigations consistently hangs on the 2nd page; per-tab overhead is small.
 
-**Prices come from two schema.org blobs.** Both live inside the `data-kobo-gizmo-config` attribute on `#ratings-widget-details-wrapper`, doubly JSON-encoded:
+**Two page templates.** Kobo is migrating storefronts to a new Next.js product page region by region (MY and AU are on it as of Nov 2026; US is still legacy), so the scraper understands both and decides per page.
+
+*Legacy template* — prices come from two schema.org blobs inside the `data-kobo-gizmo-config` attribute on `#ratings-widget-details-wrapper`, doubly JSON-encoded (`parseGizmoConfig`):
 
 - `googleBook.workExample.potentialAction.expectsAcceptanceOf.price` → current / sale price (+ currency).
 - `googleProduct.offers.price` → **list price** (RRP).
 - `googleBook.{name, author, workExample.isbn}` → title, author, ISBN.
 
 When a book is unavailable in a region, the Offer block has no price; the record keeps isbn/title/author and a `scraped_at` timestamp, and `omitempty` strips the zero-value price fields from JSON.
+
+*New template* — no gizmo element; data arrives as a React Server Components payload streamed via inline `<script>self.__next_f.push([1,"<chunk>"])</script>` tags (`extract.go`, `parseRSC`). The probe JS reads and joins those **script tags**, not the `self.__next_f` array — once the Next.js runtime boots it replaces `push()` and the array stays empty on live pages. In the joined text:
+
+- `"priceDetail":{"listPrice":..,"displayPrice":..,"currency":..}` → list price, current / sale price, currency. Decoded with `json.Decoder` from just after the key. It lives in a react-query dehydrated-state row that streams in several seconds **after** the visible DOM price, so wait for the data, not the DOM.
+- `"itemDetails":{"metadata":{"title","isbn"},"contributors":[..]}` → title, ISBN, author (`type == "Author"`, non-narrator names joined with ", "). Metadata is only read from `itemDetails` — related-book lists elsewhere in the payload carry their own titles/`authors`.
+- No `priceDetail` but product `itemDetails` present once the page has settled → treated as unavailable in region (metadata kept, no price, no error). This page variant hasn't actually been observed yet.
+
+Test fixtures in `cmd/get_list_prices/testdata/` are trimmed real excerpts of saved pages (whole RSC rows, including decoys).
+
+**Polling, not waiting on a selector.** `scrapeOne` navigates without waiting for the load event (`page.Navigate(...).Do`; legacy US pages have been seen stuck at `readyState=interactive` for over a minute), then polls a cheap in-page probe every 500ms: legacy gizmo attribute present → legacy parser; RSC text containing `priceDetail` → RSC parser (a truncated, still-streaming `priceDetail` keeps polling). If `readyState` has been `complete` for 5s with neither, it **fails fast** with `no price data found (unrecognised page template)` instead of burning the per-URL `--timeout`, which still caps everything; a timeout error reports the last seen `readyState` / gizmo element / RSC chunk count. The realistic UA is still required on both templates (headless Chrome's default `HeadlessChrome/...` UA stalls on the challenge). Pages for other storefronts may show a geo banner (e.g. "Looks like you're in Malaysia") but still carry prices.
+
+**Progress logging.** Each `scraped` / `scrape error` line carries `req=<done>/<total>` and a running `failed=` count, so a run that's failing every job is obvious early; the final `scrape complete` line gives `ok` / `failed` totals.
 
 **Output schema is region-keyed:**
 
