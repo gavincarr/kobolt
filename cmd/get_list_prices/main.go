@@ -31,10 +31,6 @@ type CLI struct {
 	URLFile string `arg:"" name:"url-file" help:"File containing one Kobo book URL per line"`
 }
 
-// Cloudflare blocks the classic --headless mode; the "new" headless and a
-// realistic UA pass the challenge automatically.
-const realisticUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-
 func main() {
 	env.Load()
 
@@ -151,11 +147,14 @@ func plan(urls []string, ccs []string, existing map[string]*kobolt.Book) ([]*kob
 func scrape(cli CLI, books []*kobolt.Book, jobs []job) error {
 	allocOpts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
-		chromedp.UserAgent(realisticUA),
 		chromedp.WindowSize(1280, 900),
 	)
 	if !cli.Headful {
+		// Cloudflare blocks the classic --headless mode; the "new" headless
+		// passes the challenge, but only with a non-Headless UA, so claim to
+		// be the regular build of the installed Chrome version.
 		allocOpts = append(allocOpts, chromedp.Flag("headless", "new"))
+		allocOpts = append(allocOpts, chromedp.UserAgent(browserUA(allocOpts)))
 	} else {
 		allocOpts = append(allocOpts, chromedp.Flag("headless", false))
 	}
