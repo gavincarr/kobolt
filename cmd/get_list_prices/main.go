@@ -170,13 +170,14 @@ func scrape(cli CLI, books []*kobolt.Book, jobs []job) error {
 	jobCh := make(chan job)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	prog := &progress{total: len(jobs)}
 	for w := 0; w < cli.Concurrent; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for j := range jobCh {
 				rp, isbn, title, author := scrapeOne(browserCtx, j.url, time.Duration(cli.Timeout)*time.Second, cli.Verbose >= 2)
-				logResult(j.url, j.cc, rp)
+				prog.logResult(j.url, j.cc, rp)
 				mu.Lock()
 				b := books[j.bookIdx]
 				b.Regions[j.cc] = rp
@@ -200,15 +201,37 @@ func scrape(cli CLI, books []*kobolt.Book, jobs []job) error {
 	}
 	close(jobCh)
 	wg.Wait()
+	done, failed := prog.counts()
+	slog.Info("scrape complete", "jobs", len(jobs), "ok", done-failed, "failed", failed)
 	return nil
 }
 
-func logResult(url, cc string, rp *kobolt.RegionPrice) {
+// progress counts completed and failed jobs across workers. The counters and
+// the log line are updated under one lock so req and failed are consistent.
+type progress struct {
+	mu     sync.Mutex
+	total  int
+	done   int
+	failed int
+}
+
+func (p *progress) counts() (done, failed int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.done, p.failed
+}
+
+func (p *progress) logResult(url, cc string, rp *kobolt.RegionPrice) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.done++
 	if rp.Error != "" {
-		slog.Warn("scrape error", "cc", cc, "url", url, "error", rp.Error)
+		p.failed++
+		slog.Warn("scrape error", "req", fmt.Sprintf("%d/%d", p.done, p.total), "failed", p.failed,
+			"cc", cc, "url", url, "error", rp.Error)
 		return
 	}
-	slog.Info("scraped",
+	slog.Info("scraped", "req", fmt.Sprintf("%d/%d", p.done, p.total), "failed", p.failed,
 		"cc", cc,
 		"url", url,
 		"price", rp.Price,
