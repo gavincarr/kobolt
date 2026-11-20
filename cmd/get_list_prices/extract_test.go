@@ -97,6 +97,8 @@ func TestParseRSCNoPriceDetail(t *testing.T) {
 		{"itemDetails without priceDetail", dropRows(au, `"priceDetail":`)},
 		{"priceDetail truncated mid-stream", au[:i+40]},
 		{"empty", ""},
+		{"null value", `1:{"priceDetail":null}`},
+		{"undefined string", `1:{"priceDetail":"$undefined"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

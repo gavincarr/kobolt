@@ -85,6 +85,11 @@ func parseRSC(text string, rp *kobolt.RegionPrice) (isbn, title, author string, 
 	if !ok {
 		return "", "", "", errNoPriceDetail
 	}
+	// Anything but an object (null, "$undefined", an RSC "$2b" reference)
+	// is a placeholder rather than the real value: keep polling.
+	if !bytes.HasPrefix(raw, []byte("{")) {
+		return "", "", "", errNoPriceDetail
+	}
 	var pd rscPriceDetail
 	if err := json.Unmarshal(raw, &pd); err != nil {
 		return "", "", "", fmt.Errorf("priceDetail: %w", err)

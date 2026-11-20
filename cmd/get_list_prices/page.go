@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/chromedp/cdproto/page"
@@ -21,6 +22,10 @@ const (
 	completeGrace = 5 * time.Second
 )
 
+// cloudflareTitlePrefix starts the title of Cloudflare's interstitial, which
+// reaches readyState "complete" with no page data while the challenge solves.
+const cloudflareTitlePrefix = "Just a moment"
+
 // probeJS reports what price data the page has so far, for both templates:
 //   - gizmo: the legacy #ratings-widget-details-wrapper data-kobo-gizmo-config.
 //   - rsc: the new template's joined RSC payload, returned only once it
@@ -32,7 +37,7 @@ const (
 // replaces push() and later chunks never land in the array (observed empty
 // on live pages). Each push argument is a JSON-compatible array literal.
 const probeJS = `(full) => {
-  const r = {readyState: document.readyState, gizmoEl: false, gizmo: "", rscChunks: 0, rsc: ""};
+  const r = {readyState: document.readyState, title: document.title, gizmoEl: false, gizmo: "", rscChunks: 0, rsc: ""};
   const el = document.getElementById("ratings-widget-details-wrapper");
   if (el) {
     r.gizmoEl = true;
@@ -56,6 +61,7 @@ const probeJS = `(full) => {
 
 type pageState struct {
 	ReadyState string `json:"readyState"`
+	Title      string `json:"title"`
 	GizmoEl    bool   `json:"gizmoEl"`
 	Gizmo      string `json:"gizmo"`
 	RSCChunks  int    `json:"rscChunks"`
@@ -63,7 +69,7 @@ type pageState struct {
 }
 
 func (s pageState) String() string {
-	return fmt.Sprintf("readyState=%s gizmo_element=%t rsc_chunks=%d", s.ReadyState, s.GizmoEl, s.RSCChunks)
+	return fmt.Sprintf("readyState=%s title=%q gizmo_element=%t rsc_chunks=%d", s.ReadyState, s.Title, s.GizmoEl, s.RSCChunks)
 }
 
 func probePage(ctx context.Context, full bool) (pageState, error) {
@@ -100,9 +106,9 @@ func extractPrices(ctx context.Context, url string, rp *kobolt.RegionPrice, dump
 	defer tick.Stop()
 
 	for {
-		st, err := probePage(ctx, false)
-		evalErr = err
-		if err == nil {
+		st, probeErr := probePage(ctx, false)
+		evalErr = probeErr
+		if probeErr == nil {
 			last, seen = st, true
 
 			// Legacy template.
@@ -110,11 +116,11 @@ func extractPrices(ctx context.Context, url string, rp *kobolt.RegionPrice, dump
 				if dumpRaw {
 					slog.Debug("raw gizmo config", "url", url, "config", st.Gizmo)
 				}
-				isbn, title, author, err := parseGizmoConfig(st.Gizmo, rp)
-				if err != nil {
-					return "", "", "", fmt.Errorf("parse: %w", err)
+				gIsbn, gTitle, gAuthor, gErr := parseGizmoConfig(st.Gizmo, rp)
+				if gErr != nil {
+					return "", "", "", fmt.Errorf("parse: %w", gErr)
 				}
-				return isbn, title, author, nil
+				return gIsbn, gTitle, gAuthor, nil
 			}
 			// Legacy element without its config once the DOM is parsed.
 			if st.GizmoEl && st.ReadyState != "loading" {
@@ -123,12 +129,12 @@ func extractPrices(ctx context.Context, url string, rp *kobolt.RegionPrice, dump
 
 			// New (RSC) template.
 			if st.RSC != "" {
-				if isbn, title, author, done, err := fromRSC(url, st.RSC, rp, dumpRaw); done {
-					return isbn, title, author, err
+				if rIsbn, rTitle, rAuthor, done, rErr := fromRSC(url, st.RSC, rp, dumpRaw); done {
+					return rIsbn, rTitle, rAuthor, rErr
 				}
 			}
 
-			if st.ReadyState != "complete" {
+			if st.ReadyState != "complete" || strings.HasPrefix(st.Title, cloudflareTitlePrefix) {
 				completeSince = time.Time{}
 			} else if completeSince.IsZero() {
 				completeSince = time.Now()
@@ -178,16 +184,19 @@ func fromRSC(url, text string, rp *kobolt.RegionPrice, dumpRaw bool) (isbn, titl
 // Anything else is an unrecognised page and fails fast instead of burning
 // the whole timeout.
 func settledWithoutPrice(ctx context.Context, url string, rp *kobolt.RegionPrice, st pageState, dumpRaw bool) (isbn, title, author string, err error) {
-	if full, err := probePage(ctx, true); err == nil {
+	full, probeErr := probePage(ctx, true)
+	if probeErr == nil {
 		st = full
 		// priceDetail may have completed since the last poll.
-		if isbn, title, author, done, err := fromRSC(url, full.RSC, rp, dumpRaw); done {
-			return isbn, title, author, err
+		if fIsbn, fTitle, fAuthor, done, fErr := fromRSC(url, full.RSC, rp, dumpRaw); done {
+			return fIsbn, fTitle, fAuthor, fErr
 		}
-		if isbn, title, author, ok := rscMetadata(full.RSC); ok {
-			slog.Debug("no priceDetail after page load; treating as unavailable in region", "url", url, "state", st.String())
-			return isbn, title, author, nil
+		if mIsbn, mTitle, mAuthor, ok := rscMetadata(full.RSC); ok {
+			slog.Info("no price on page; treating as unavailable in region", "url", url, "state", st.String())
+			return mIsbn, mTitle, mAuthor, nil
 		}
+	} else if ctx.Err() != nil {
+		return "", "", "", fmt.Errorf("timed out waiting for price data (%s)", st.String())
 	}
 	slog.Debug("no price data after page load", "url", url, "state", st.String())
 	return "", "", "", errors.New("no price data found (unrecognised page template)")

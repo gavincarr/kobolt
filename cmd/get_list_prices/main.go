@@ -227,11 +227,14 @@ func (p *progress) logResult(url, cc string, rp *kobolt.RegionPrice) {
 	p.done++
 	if rp.Error != "" {
 		p.failed++
-		slog.Warn("scrape error", "req", fmt.Sprintf("%d/%d", p.done, p.total), "failed", p.failed,
+	}
+	req := fmt.Sprintf("%d/%d", p.done, p.total)
+	if rp.Error != "" {
+		slog.Warn("scrape error", "req", req, "failed", p.failed,
 			"cc", cc, "url", url, "error", rp.Error)
 		return
 	}
-	slog.Info("scraped", "req", fmt.Sprintf("%d/%d", p.done, p.total), "failed", p.failed,
+	slog.Info("scraped", "req", req, "failed", p.failed,
 		"cc", cc,
 		"url", url,
 		"price", rp.Price,
