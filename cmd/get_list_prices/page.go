@@ -37,7 +37,9 @@ const cloudflareTitlePrefix = "Just a moment"
 // replaces push() and later chunks never land in the array (observed empty
 // on live pages). Each push argument is a JSON-compatible array literal.
 const probeJS = `(full) => {
-  const r = {readyState: document.readyState, title: document.title, gizmoEl: false, gizmo: "", rscChunks: 0, rsc: ""};
+  const r = {readyState: document.readyState, title: document.title, gizmoEl: false, gizmo: "", rscChunks: 0, rsc: "", domPrice: false};
+  const pe = document.querySelector('[data-testid="price"]');
+  r.domPrice = !!pe && /\d/.test(pe.textContent || "");
   const el = document.getElementById("ratings-widget-details-wrapper");
   if (el) {
     r.gizmoEl = true;
@@ -66,10 +68,12 @@ type pageState struct {
 	Gizmo      string `json:"gizmo"`
 	RSCChunks  int    `json:"rscChunks"`
 	RSC        string `json:"rsc"`
+	// DOMPrice: the visible [data-testid="price"] element shows a digit.
+	DOMPrice bool `json:"domPrice"`
 }
 
 func (s pageState) String() string {
-	return fmt.Sprintf("readyState=%s title=%q gizmo_element=%t rsc_chunks=%d", s.ReadyState, s.Title, s.GizmoEl, s.RSCChunks)
+	return fmt.Sprintf("readyState=%s title=%q gizmo_element=%t rsc_chunks=%d dom_price=%t", s.ReadyState, s.Title, s.GizmoEl, s.RSCChunks, s.DOMPrice)
 }
 
 func probePage(ctx context.Context, full bool) (pageState, error) {
@@ -175,29 +179,54 @@ func fromRSC(url, text string, rp *kobolt.RegionPrice, dumpRaw bool) (isbn, titl
 	return isbn, title, author, true, nil
 }
 
+// Errors from resolveSettled.
+var (
+	errPriceNotInData = errors.New("price shown on page but no priceDetail data found")
+	errUnrecognised   = errors.New("no price data found (unrecognised page template)")
+)
+
+// resolveSettled decides what a settled page with no usable priceDetail is.
+// hasMeta reports product itemDetails metadata. A visible DOM price without
+// priceDetail is an error (Kobo likely changed the data shape; retried and
+// counted as failed). Metadata and no DOM price is treated as unavailable in
+// region (ok=true, no error). NOTE: that unavailable page variant has not
+// actually been observed yet. Neither is an unrecognised template.
+func resolveSettled(st pageState, hasMeta bool) (unavailable bool, err error) {
+	switch {
+	case st.DOMPrice:
+		return false, errPriceNotInData
+	case hasMeta:
+		return true, nil
+	}
+	return false, errUnrecognised
+}
+
 // settledWithoutPrice handles a page that finished loading with no price
-// data. A new-template page with the product's itemDetails but no
-// priceDetail is treated as the book being unavailable in this region:
-// metadata is kept, no price, no error — matching the legacy template, whose
-// Offer simply has no price. NOTE: this new-template "unavailable in region"
-// page has not actually been observed yet; the rule is a best guess.
-// Anything else is an unrecognised page and fails fast instead of burning
-// the whole timeout.
+// data; see resolveSettled for the rules. Unrecognised pages fail fast
+// instead of burning the whole timeout.
 func settledWithoutPrice(ctx context.Context, url string, rp *kobolt.RegionPrice, st pageState, dumpRaw bool) (isbn, title, author string, err error) {
 	full, probeErr := probePage(ctx, true)
-	if probeErr == nil {
-		st = full
-		// priceDetail may have completed since the last poll.
-		if fIsbn, fTitle, fAuthor, done, fErr := fromRSC(url, full.RSC, rp, dumpRaw); done {
-			return fIsbn, fTitle, fAuthor, fErr
+	if probeErr != nil {
+		if ctx.Err() != nil {
+			return "", "", "", fmt.Errorf("timed out waiting for price data (%s)", st.String())
 		}
-		if mIsbn, mTitle, mAuthor, ok := rscMetadata(full.RSC); ok {
-			slog.Info("no price on page; treating as unavailable in region", "url", url, "state", st.String())
-			return mIsbn, mTitle, mAuthor, nil
-		}
-	} else if ctx.Err() != nil {
-		return "", "", "", fmt.Errorf("timed out waiting for price data (%s)", st.String())
+		slog.Debug("no price data after page load", "url", url, "state", st.String())
+		_, err := resolveSettled(st, false)
+		return "", "", "", err
 	}
-	slog.Debug("no price data after page load", "url", url, "state", st.String())
-	return "", "", "", errors.New("no price data found (unrecognised page template)")
+	st = full
+	// priceDetail may have completed since the last poll.
+	if fIsbn, fTitle, fAuthor, done, fErr := fromRSC(url, full.RSC, rp, dumpRaw); done {
+		return fIsbn, fTitle, fAuthor, fErr
+	}
+	mIsbn, mTitle, mAuthor, hasMeta := rscMetadata(full.RSC)
+	unavailable, err := resolveSettled(st, hasMeta)
+	if err != nil {
+		slog.Debug("no price data after page load", "url", url, "state", st.String())
+		return "", "", "", err
+	}
+	if unavailable {
+		slog.Info("no price on page; treating as unavailable in region", "url", url, "state", st.String())
+	}
+	return mIsbn, mTitle, mAuthor, nil
 }

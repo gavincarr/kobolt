@@ -32,7 +32,7 @@ func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
 }
 
 func TestProgressConcurrent(t *testing.T) {
-	const total, wantFailed = 100, 25
+	const total, wantFailed, wantUnavail = 100, 25, 15
 	h := &captureHandler{}
 	prev := slog.Default()
 	slog.SetDefault(slog.New(h))
@@ -44,16 +44,18 @@ func TestProgressConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			rp := &kobolt.RegionPrice{}
+			rp := &kobolt.RegionPrice{Price: 9.99}
 			if i%4 == 0 {
 				rp.Error = "boom"
+			} else if i%5 == 0 {
+				rp.Price = 0 // unavailable: no error, no price
 			}
 			p.logResult("u", "my", rp)
 		}(i)
 	}
 	wg.Wait()
-	if done, failed := p.counts(); done != total || failed != wantFailed {
-		t.Fatalf("got done=%d failed=%d, want %d/%d", done, failed, total, wantFailed)
+	if done, unavail, failed := p.counts(); done != total || failed != wantFailed || unavail != wantUnavail {
+		t.Fatalf("got done=%d unavailable=%d failed=%d, want %d/%d/%d", done, unavail, failed, total, wantUnavail, wantFailed)
 	}
 
 	if len(h.recs) != total {

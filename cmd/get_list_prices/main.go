@@ -201,8 +201,9 @@ func scrape(cli CLI, books []*kobolt.Book, jobs []job) error {
 	}
 	close(jobCh)
 	wg.Wait()
-	done, failed := prog.counts()
-	slog.Info("scrape complete", "jobs", len(jobs), "ok", done-failed, "failed", failed)
+	_, unavailable, failed := prog.counts()
+	slog.Info("scrape complete", "jobs", len(jobs), "ok", len(jobs)-unavailable-failed,
+		"unavailable", unavailable, "failed", failed)
 	return nil
 }
 
@@ -213,12 +214,15 @@ type progress struct {
 	total  int
 	done   int
 	failed int
+	// unavailable counts non-error results with no price (book not sold in
+	// that region).
+	unavailable int
 }
 
-func (p *progress) counts() (done, failed int) {
+func (p *progress) counts() (done, unavailable, failed int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.done, p.failed
+	return p.done, p.unavailable, p.failed
 }
 
 func (p *progress) logResult(url, cc string, rp *kobolt.RegionPrice) {
@@ -227,6 +231,10 @@ func (p *progress) logResult(url, cc string, rp *kobolt.RegionPrice) {
 	p.done++
 	if rp.Error != "" {
 		p.failed++
+	}
+	unavailable := rp.Error == "" && rp.Price == 0 && rp.ListPrice == 0
+	if unavailable {
+		p.unavailable++
 	}
 	req := fmt.Sprintf("%d/%d", p.done, p.total)
 	if rp.Error != "" {
@@ -240,6 +248,7 @@ func (p *progress) logResult(url, cc string, rp *kobolt.RegionPrice) {
 		"price", rp.Price,
 		"list_price", rp.ListPrice,
 		"currency", rp.Currency,
+		"unavailable", unavailable,
 	)
 }
 
